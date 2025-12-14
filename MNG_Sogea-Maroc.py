@@ -1,0 +1,924 @@
+import streamlit as st
+import sqlite3
+import bcrypt
+import datetime
+from datetime import date
+from PIL import Image
+import os
+import base64
+import pandas as pd
+
+def get_base64_icon(image_path):
+    try:
+        full_path = os.path.join(os.path.dirname(__file__), image_path)
+        with open(full_path, "rb") as f:
+            encoded_string = base64.b64encode(f.read()).decode()
+        return encoded_string
+    except FileNotFoundError:
+        st.error(f"Erreur : Fichier d'icône introuvable à '{image_path}'. Vérifiez le chemin.")
+        return None
+    except Exception as e:
+        st.error(f"Erreur lors du chargement de l'icône : {e}")
+        return None
+
+def display_logo(image_path, width=150):
+    try:
+        full_path = os.path.join(os.path.dirname(__file__), image_path)
+        img = Image.open(full_path)
+        # Centrer l'image
+        st.markdown("<div style='display: flex; align-items: center; justify-content: center; height: 100%;'>", unsafe_allow_html=True)
+        st.image(img, width=280)
+        st.markdown("</div>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        st.error(f"Erreur : Image introuvable à '{image_path}'. Vérifiez le chemin.")
+    except Exception as e:
+        st.error(f"Erreur lors du chargement de l'image : {e}")
+def setup_db():
+    with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+        c = conn.cursor()
+        c.execute('''
+        CREATE TABLE IF NOT EXISTS Users_SOGEA (
+            ID_User INTEGER PRIMARY KEY AUTOINCREMENT,
+            CIN TEXT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            first_name TEXT,
+            last_name TEXT,
+            chantier TEXT,
+            email TEXT,
+            phone TEXT,
+            statut TEXT DEFAULT 'Utilisateur'
+        )''')
+        
+        # Vérifier si la colonne CIN existe déjà
+        c.execute("PRAGMA table_info(Users_SOGEA)")
+        columns = [col[1] for col in c.fetchall()]
+        
+        # Ajouter la colonne CIN si elle n'existe pas
+        if 'CIN' not in columns:
+            c.execute("ALTER TABLE Users_SOGEA ADD COLUMN CIN TEXT")
+            conn.commit()
+            
+            # Essayer d'ajouter une contrainte d'unicité (cela peut échouer si des doublons existent)
+            try:
+                # D'abord vérifier s'il y a des données
+                c.execute("SELECT COUNT(*) FROM Users_SOGEA")
+                count = c.fetchone()[0]
+                
+                if count == 0:
+                    # Table vide, on peut ajouter la contrainte UNIQUE
+                    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_cin_unique ON Users_SOGEA(CIN)")
+                else:
+                    # Table avec données, on ne peut pas ajouter UNIQUE directement
+                    # On va essayer de nettoyer les doublons potentiels
+                    # st.warning("La table contient des données existantes. La colonne CIN a été ajoutée sans contrainte UNIQUE.")
+                    pass
+            except Exception as e:
+                st.warning(f"Impossible d'ajouter la contrainte UNIQUE pour CIN : {e}")
+                st.warning("La colonne CIN a été ajoutée sans contrainte UNIQUE.")
+        
+        # Vérifier et ajouter la colonne statut si nécessaire
+        if 'statut' not in columns:
+            c.execute("ALTER TABLE Users_SOGEA ADD COLUMN statut TEXT DEFAULT 'Utilisateur'")
+        
+        # Créer un index unique sur CIN (si possible)
+        try:
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_cin_unique ON Users_SOGEA(CIN)")
+        except:
+            pass  # L'index peut échouer si des doublons existent
+        
+        conn.commit()
+
+def hash_password(password):
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+
+def verify_password(plain_password, hashed_password):
+    if isinstance(hashed_password, str):
+        hashed_password = hashed_password.encode()
+    return bcrypt.checkpw(plain_password.encode(), hashed_password)
+
+def display_app_header(page_title):
+    col1, col2 = st.columns([0.2, 0.8])
+    with col1:
+        if 'authenticated' in st.session_state and st.session_state.authenticated:
+            try:
+                full_path = os.path.join(os.path.dirname(__file__), "Images", "Corp.PNG")
+                img = Image.open(full_path)
+                # Centrer l'image dans la colonne
+                st.markdown("<div style='display: flex; align-items: center; justify-content: center; height: 100%;'>", unsafe_allow_html=True)
+                st.image(img, width=350)
+                st.markdown("</div>", unsafe_allow_html=True)
+            except FileNotFoundError:
+                display_logo(os.path.join("Images", "SOGEA-MAROC.PNG"), width=100)
+            except Exception as e:
+                st.error(f"Erreur lors du chargement de Corp.PNG : {e}")
+        else:
+            display_logo(os.path.join("Images", "SOGEA-MAROC.PNG"), width=100)
+    with col2:
+        st.markdown(f"""
+        <h1 style='color: #004890; font-weight: bold; border-bottom: 2px solid #EE1B2E; padding-bottom: 10px;'>
+            {page_title}
+        </h1>
+        """, unsafe_allow_html=True)
+    st.markdown("---")
+
+def styled_subheader(text):
+    st.markdown(f"""
+    <h2 style='color: #004890; font-weight: bold; margin-top: 20px;'>
+        {text}
+    </h2>
+    """, unsafe_allow_html=True)
+
+def authenticate(login, password):
+    if login == "Admin" and password == "Admin10":
+        return True, "admin_user"
+    return False, None
+
+def get_user_team(ID_Citrix_User):
+    return "Administration"
+
+def get_user_status(ID_Citrix_User):
+    return "Administrateur"
+
+def get_user_name(ID_Citrix_User):
+    return "Administrateur SOGEA"
+
+def show_login():
+    if "authenticated" not in st.session_state or not st.session_state["authenticated"]:
+        # Appliquer un style temporaire pour le fond blanc
+        st.markdown("""
+        <style>
+            /* Cacher temporairement le fond gris */
+            .stApp > div:first-child {
+                background-color: white !important;
+            }
+            [data-testid="stAppViewContainer"] {
+                background-color: white !important;
+            }
+            /* Fond blanc pour toute la page */
+            body {
+                background-color: white !important;
+            }
+        </style>
+        """, unsafe_allow_html=True)   
+    if "authenticated" not in st.session_state or not st.session_state["authenticated"]:
+        col1, col2, col3 = st.columns([1,5,1.8])
+
+        with col1:
+            st.markdown("<div style='text-align: left;'>", unsafe_allow_html=True)
+            display_logo(os.path.join("Images", "SOGEA-MAROC.png"), width=280)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col2:
+            st.subheader("Page de connexion")
+            login = st.text_input("Nom d'utilisateur : ", key="login_username")
+            password = st.text_input("Mot de passe :", type="password", key="login_password")
+            
+            btn_col1, btn_col2 = st.columns(2)
+            
+            with btn_col1:
+                if st.button("Se connecter", key="login_button", use_container_width=True):
+                    is_authenticated, ID_Citrix_User = authenticate(login, password)
+                    
+                    if is_authenticated:
+                        user_team = get_user_team(ID_Citrix_User)
+                        user_status = get_user_status(ID_Citrix_User)
+                        user_name = get_user_name(ID_Citrix_User)
+                        
+                        try:
+                            with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                                c = conn.cursor()
+                                c.execute("SELECT * FROM Users_SOGEA WHERE username=?", ("Admin",))
+                                user = c.fetchone()
+                                
+                                if not user:
+                                    hashed_pw = hash_password("Admin10")
+                                    c.execute("INSERT INTO Users_SOGEA (CIN, username, password, first_name, last_name, chantier, email, phone, statut) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                            ("ADMIN001", "Admin", hashed_pw, "Administrateur", "SOGEA", "Siège", "admin@sogeamaroc.ma", "0000000000", "Administrateur"))
+                                    conn.commit()
+                                    c.execute("SELECT * FROM Users_SOGEA WHERE username=?", ("Admin",))
+                                    user = c.fetchone()
+                        except Exception as e:
+                            st.error(f"Erreur base de données : {e}")
+                            user = None
+                        
+                        if user:
+                            st.session_state.update({
+                                "authenticated": True,
+                                "current_user": user,
+                                "ID_Citrix": ID_Citrix_User,
+                                "ID_Citrix_User": ID_Citrix_User,
+                                "Nom_Prenom": user_name,
+                                "Team": user_team, 
+                                "Statut": user_status,
+                                "is_admin": True
+                            })
+                            
+                            st.success(f"Connexion réussie en tant que {user_name}!")
+                            st.rerun()
+                    else:
+                        st.error("Échec de l'authentification. Veuillez vérifier vos informations.")
+            
+            with btn_col2:
+                if st.button("Annuler", key="cancel_button", use_container_width=True):
+                    st.info("Connexion annulée")
+                    st.rerun()
+
+        with col3:
+            pass
+
+def show_profile():
+    user = st.session_state.current_user
+
+    st.markdown("""
+    <div class='info-card'>
+        <h3 style='color: var(--primary-blue); margin-top: 0;'>Informations de profil</h3>
+    """, unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(f"**CIN :** {user[1] if len(user) > 1 and user[1] else 'Non spécifié'}")
+        st.write(f"**Nom d'utilisateur :** {user[2]}")
+        st.write(f"**Prénom :** {user[4]}")
+        st.write(f"**Nom de famille :** {user[5]}")
+    with col2:
+        st.write(f"**Statut :** {user[9] if len(user) > 9 else 'Utilisateur'}")
+        st.write(f"**Chantier :** {user[6]}")
+        st.write(f"**Téléphone :** {user[8]}")
+        st.write(f"**Email :** {user[7]}")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def show_edit_profile():
+    user = st.session_state.current_user
+
+    with st.form(key="edit_profile_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            CIN = st.text_input("CIN", value=user[1] if len(user) > 1 else "", key="edit_profile_cin")
+            first_name = st.text_input("Prénom", value=user[4], key="edit_profile_first_name")
+            last_name = st.text_input("Nom de famille", value=user[5], key="edit_profile_last_name")
+            chantier = st.text_input("Chantier", value=user[6], key="edit_profile_chantier")
+        with col2:
+            phone = st.text_input("Téléphone", value=user[8], key="edit_profile_phone")
+            email = st.text_input("Email", value=user[7], key="edit_profile_email")
+            current_statut = user[9] if len(user) > 9 else 'Utilisateur'
+            if st.session_state.get('is_admin', False):
+                statut = st.selectbox(
+                    "Statut",
+                    ["Utilisateur", "Administrateur", "Superviseur", "Manager"],
+                    index=["Utilisateur", "Administrateur", "Superviseur", "Manager"].index(current_statut) if current_statut in ["Utilisateur", "Administrateur", "Superviseur", "Manager"] else 0,
+                    key="edit_profile_statut"
+                )
+            else:
+                statut = current_statut
+                st.text_input("Statut", value=statut, disabled=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            submitted = st.form_submit_button("Enregistrer", use_container_width=True)
+        with col2:
+            canceled = st.form_submit_button("Annuler", use_container_width=True)
+
+        if canceled:
+            st.session_state.menu_selection = "profile"
+            st.rerun()
+
+        if submitted:
+            if not all([CIN, first_name, last_name, chantier, phone, email]):
+                st.error("Tous les champs doivent être remplis !")
+            else:
+                try:
+                    with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                        c = conn.cursor()
+                        c.execute("UPDATE Users_SOGEA SET CIN=?, first_name=?, last_name=?, chantier=?, phone=?, email=?, statut=? WHERE ID_User=?",
+                                (CIN, first_name, last_name, chantier, phone, email, statut, user[0]))
+                        conn.commit()
+                        c.execute("SELECT * FROM Users_SOGEA WHERE ID_User=?", (user[0],))
+                        u = c.fetchone()
+                    st.session_state.current_user = u
+                    st.success("Profil mis à jour avec succès !")
+                    st.session_state.menu_selection = "profile"
+                    st.rerun()
+                except sqlite3.IntegrityError:
+                    st.error("Ce CIN existe déjà dans la base de données !")
+                except Exception as e:
+                    st.error(f"Erreur lors de la mise à jour : {e}")
+
+def show_settings():
+    st.subheader("Gestion des utilisateurs")
+    st.markdown("---")
+    
+    # Initialiser l'état de la recherche
+    if 'user_found' not in st.session_state:
+        st.session_state.user_found = False
+    if 'current_user_cin' not in st.session_state:
+        st.session_state.current_user_cin = None
+    
+    # Section de recherche par CIN
+    st.markdown("### Recherche d'utilisateur par CIN")
+    col_search1, col_search2 = st.columns([3, 1])
+    
+    with col_search1:
+        cin_search = st.text_input("Entrez le CIN de l'utilisateur :", 
+                                   key="cin_search_input",
+                                   placeholder="Ex: AB123456")
+    
+    with col_search2:
+        st.markdown("<div style='height: 30px'></div>", unsafe_allow_html=True)
+        search_button = st.button("🔍 Rechercher", key="cin_search_button", use_container_width=True)
+    
+    user_data = None
+    
+    # Vérifier si un utilisateur est déjà trouvé dans la session
+    if st.session_state.user_found and st.session_state.current_user_cin:
+        try:
+            with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                c = conn.cursor()
+                c.execute("SELECT * FROM Users_SOGEA WHERE CIN=?", (st.session_state.current_user_cin,))
+                user_data = c.fetchone()
+        except:
+            st.session_state.user_found = False
+            st.session_state.current_user_cin = None
+    
+    # Gérer la recherche
+    if search_button and cin_search:
+        try:
+            with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                c = conn.cursor()
+                c.execute("SELECT * FROM Users_SOGEA WHERE CIN=?", (cin_search.strip(),))
+                user_data = c.fetchone()
+                
+                if user_data:
+                    st.session_state.user_found = True
+                    st.session_state.current_user_cin = cin_search.strip()
+                    st.success(f"Utilisateur trouvé : {user_data[4]} {user_data[5]}")
+                else:
+                    st.session_state.user_found = False
+                    st.session_state.current_user_cin = None
+                    st.info(f"Aucun utilisateur trouvé avec le CIN : {cin_search}")
+        except Exception as e:
+            st.error(f"Erreur lors de la recherche : {e}")
+    
+    # Bouton pour réinitialiser la recherche
+    if st.session_state.user_found:
+        if st.button("Nouvelle recherche", key="new_search_button"):
+            st.session_state.user_found = False
+            st.session_state.current_user_cin = None
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Afficher le formulaire seulement si un utilisateur est trouvé
+    if st.session_state.user_found and user_data:
+        st.markdown(f"### Modifier l'utilisateur : {user_data[4]} {user_data[5]}")
+        
+        with st.form(key="edit_user_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                CIN = st.text_input("CIN *", value=user_data[1], key="edit_user_cin", disabled=True)
+                username = st.text_input("Nom d'utilisateur *", value=user_data[2], key="edit_user_username")
+                first_name = st.text_input("Prénom *", value=user_data[4], key="edit_user_first_name")
+                last_name = st.text_input("Nom de famille *", value=user_data[5], key="edit_user_last_name")
+                
+            with col2:
+                chantier = st.text_input("Chantier", value=user_data[6] if user_data[6] else "", key="edit_user_chantier")
+                email = st.text_input("Email", value=user_data[7] if user_data[7] else "", key="edit_user_email")
+                phone = st.text_input("Téléphone", value=user_data[8] if user_data[8] else "", key="edit_user_phone")
+                statut = st.selectbox(
+                    "Statut *",
+                    ["Utilisateur", "Administrateur", "Superviseur", "Manager"],
+                    index=["Utilisateur", "Administrateur", "Superviseur", "Manager"].index(user_data[9]) if user_data[9] in ["Utilisateur", "Administrateur", "Superviseur", "Manager"] else 0,
+                    key="edit_user_statut"
+                )
+            
+            st.markdown("**Champs obligatoires *")
+            
+            # Section pour changer le mot de passe
+            st.markdown("---")
+            st.markdown("### Changer le mot de passe")
+            col_pass1, col_pass2 = st.columns(2)
+            with col_pass1:
+                new_password = st.text_input("Nouveau mot de passe", type="password", 
+                                            key="edit_user_new_password", 
+                                            placeholder="Laisser vide pour ne pas changer")
+            with col_pass2:
+                confirm_password = st.text_input("Confirmer le mot de passe", type="password",
+                                                key="edit_user_confirm_password",
+                                                placeholder="Laisser vide pour ne pas changer")
+            
+            btn_col1, btn_col2, btn_col3 = st.columns(3)
+            with btn_col1:
+                update_button = st.form_submit_button("Mettre à jour", use_container_width=True)
+            with btn_col2:
+                delete_button = st.form_submit_button("Supprimer l'utilisateur", use_container_width=True)
+            with btn_col3:
+                cancel_button = st.form_submit_button("Annuler", use_container_width=True)
+            
+            if cancel_button:
+                st.info("Modification annulée")
+                st.rerun()
+            
+            if delete_button:
+                try:
+                    with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                        c = conn.cursor()
+                        c.execute("DELETE FROM Users_SOGEA WHERE CIN=?", (user_data[1],))
+                        conn.commit()
+                    st.session_state.user_found = False
+                    st.session_state.current_user_cin = None
+                    st.success("Utilisateur supprimé avec succès !")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erreur lors de la suppression : {e}")
+            
+            if update_button:
+                if not all([CIN, username, first_name, last_name, statut]):
+                    st.error("Veuillez remplir tous les champs obligatoires (*)")
+                elif new_password and new_password != confirm_password:
+                    st.error("Les mots de passe ne correspondent pas !")
+                else:
+                    try:
+                        with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                            c = conn.cursor()
+                            
+                            # Préparer les données de mise à jour
+                            update_data = (username, first_name, last_name, 
+                                          chantier or "", email or "", phone or "", 
+                                          statut, user_data[1])
+                            
+                            # Mettre à jour les informations de base
+                            c.execute("""
+                                UPDATE Users_SOGEA 
+                                SET username=?, first_name=?, last_name=?, chantier=?, 
+                                    email=?, phone=?, statut=?
+                                WHERE CIN=?
+                            """, update_data)
+                            
+                            # Mettre à jour le mot de passe si fourni
+                            if new_password:
+                                hashed_password = hash_password(new_password)
+                                c.execute("UPDATE Users_SOGEA SET password=? WHERE CIN=?", 
+                                         (hashed_password, user_data[1]))
+                            
+                            conn.commit()
+                        
+                        st.success("Utilisateur mis à jour avec succès !")
+                        st.rerun()
+                    except sqlite3.IntegrityError as e:
+                        if "username" in str(e):
+                            st.error(f"Le nom d'utilisateur '{username}' existe déjà !")
+                        else:
+                            st.error(f"Erreur d'intégrité : {e}")
+                    except Exception as e:
+                        st.error(f"Erreur lors de la mise à jour : {e}")
+    
+    elif not st.session_state.user_found:
+        # Section pour ajouter un nouvel utilisateur
+        st.markdown("### Ajouter un nouvel utilisateur")
+        
+        with st.form(key="add_user_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                CIN = st.text_input("CIN *", key="add_user_cin", placeholder="Ex: AB123456")
+                username = st.text_input("Nom d'utilisateur *", key="add_user_username")
+                password = st.text_input("Mot de passe *", type="password", key="add_user_password")
+                first_name = st.text_input("Prénom *", key="add_user_first_name")
+                last_name = st.text_input("Nom de famille *", key="add_user_last_name")
+                
+            with col2:
+                chantier = st.text_input("Chantier", key="add_user_chantier")
+                email = st.text_input("Email", key="add_user_email")
+                phone = st.text_input("Téléphone", key="add_user_phone")
+                statut = st.selectbox(
+                    "Statut *",
+                    ["Utilisateur", "Administrateur", "Superviseur", "Manager"],
+                    key="add_user_statut"
+                )
+            
+            st.markdown("**Champs obligatoires *")
+            
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                submit_button = st.form_submit_button("Enregistrer", use_container_width=True)
+            with btn_col2:
+                cancel_button = st.form_submit_button("Annuler", use_container_width=True)
+            
+            if cancel_button:
+                st.info("Opération annulée")
+            
+            if submit_button:
+                if not all([CIN, username, password, first_name, last_name, statut]):
+                    st.error("Veuillez remplir tous les champs obligatoires (*)")
+                else:
+                    try:
+                        hashed_password = hash_password(password)
+                        
+                        with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                            c = conn.cursor()
+                            c.execute("""
+                                INSERT INTO Users_SOGEA 
+                                (CIN, username, password, first_name, last_name, chantier, email, phone, statut) 
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (CIN, username, hashed_password, first_name, last_name, 
+                                 chantier or "", email or "", phone or "", statut))
+                            conn.commit()
+                        
+                        st.success(f"Utilisateur {username} créé avec succès !")
+                        st.rerun()
+                    except sqlite3.IntegrityError as e:
+                        if "CIN" in str(e):
+                            st.error(f"Le CIN '{CIN}' existe déjà !")
+                        elif "username" in str(e):
+                            st.error(f"Le nom d'utilisateur '{username}' existe déjà !")
+                        else:
+                            st.error(f"Erreur d'intégrité : {e}")
+                    except Exception as e:
+                        st.error(f"Erreur lors de la création : {e}")
+    
+    st.markdown("---")
+    st.subheader("Liste des utilisateurs existants")
+    
+    try:
+        with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+            c = conn.cursor()
+            c.execute("SELECT CIN, username, first_name, last_name, chantier, email, phone, statut FROM Users_SOGEA")
+            users = c.fetchall()
+        
+        if users:
+            df = pd.DataFrame(
+                users,
+                columns=["CIN", "Nom d'utilisateur", "Prénom", "Nom", "Chantier", "Email", "Téléphone", "Statut"]
+            )
+            
+            st.markdown(f"**Total des utilisateurs :** {len(df)}")
+            
+            st.markdown("### Tableau des utilisateurs")
+            
+            st.dataframe(
+                df,
+                column_config={
+                    "CIN": st.column_config.TextColumn("CIN", width="medium"),
+                    "Nom d'utilisateur": st.column_config.TextColumn("Nom d'utilisateur", width="medium"),
+                    "Prénom": st.column_config.TextColumn("Prénom", width="medium"),
+                    "Nom": st.column_config.TextColumn("Nom", width="medium"),
+                    "Chantier": st.column_config.TextColumn("Chantier", width="medium"),
+                    "Email": st.column_config.TextColumn("Email", width="large"),
+                    "Téléphone": st.column_config.TextColumn("Téléphone", width="medium"),
+                    "Statut": st.column_config.TextColumn("Statut", width="medium")
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=400
+            )
+            
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Télécharger la liste des utilisateurs (CSV)",
+                data=csv,
+                file_name="users_sogea_maroc.csv",
+                mime="text/csv",
+                key="download_users_csv"
+            )
+            
+            st.markdown("### Utilisateurs par chantier")
+            if not df["Chantier"].empty:
+                chantier_counts = df["Chantier"].value_counts()
+                cols = st.columns(min(3, len(chantier_counts)))
+                for i, (chantier, count) in enumerate(chantier_counts.items()):
+                    if i < 3:
+                        with cols[i]:
+                            st.metric(label=f"Chantier: {chantier if chantier else 'Non spécifié'}", 
+                                     value=count)
+            
+            st.markdown("### Répartition par statut")
+            if not df["Statut"].empty:
+                statut_counts = df["Statut"].value_counts()
+                cols = st.columns(min(4, len(statut_counts)))
+                for i, (statut_name, count) in enumerate(statut_counts.items()):
+                    if i < 4:
+                        with cols[i % len(cols)]:
+                            st.metric(label=f"Statut: {statut_name}", value=count)
+            
+        else:
+            st.info("Aucun utilisateur trouvé dans la base de données.")
+            
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des utilisateurs : {e}")
+
+def main():
+    if 'authenticated' in st.session_state and st.session_state.authenticated:
+        icon_path = os.path.join("Images", "Corp.PNG")
+    else:
+        icon_path = os.path.join("Images", "SOGEA-MAROC.PNG")
+    
+    icon_base64 = get_base64_icon(icon_path)
+    if icon_base64:
+        st.set_page_config(
+            layout="wide",
+            page_title="SOGEA-MAROC - Gestion",
+            page_icon=f"data:image/x-icon;base64,{icon_base64}",
+            initial_sidebar_state="expanded"
+        )
+    else:
+        st.set_page_config(
+            layout="wide",
+            page_title="SOGEA-MAROC - Gestion",
+            initial_sidebar_state="expanded"
+        )
+
+    setup_db()
+
+    st.markdown("""
+    <style>
+        :root {
+            --primary-dark: #000000;
+            --secondary-red: #EE1B2E;
+            --primary-blue: #004890;
+            --light-blue: #4A7FB0;
+            --off-white: #FFFFFF;
+            --main-background: #F5F5F5;
+            --light-gray: #E0E0E0;
+        }
+
+        html, body, [data-testid="stAppViewContainer"] {
+            font-family: "Inter", sans-serif;
+            background-color: var(--main-background);
+            color: var(--primary-dark);
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            color: var(--primary-blue);
+            font-weight: bold;
+        }
+
+        [data-testid="stSidebar"] {
+            background-color: var(--primary-blue);
+            color: var(--off-white);
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 3px 0px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        [data-testid="stSidebar"] .st-emotion-cache-1jm50x5 {
+            display: none;
+        }
+
+        [data-testid="stSidebar"] .st-emotion-cache-10o4u29 {
+            color: var(--off-white);
+            font-weight: bold;
+        }
+
+        .stButton > button {
+            background-color: var(--primary-blue);
+            color: var(--off-white);
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-weight: bold;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        .stButton > button:hover {
+            background-color: var(--light-blue);
+            transform: translateY(-2px);
+        }
+        .stButton > button:active {
+            background-color: var(--light-blue);
+            transform: translateY(0);
+            box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.2);
+        }
+
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] .stButton {
+            margin-bottom: 5px;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] .stButton > button {
+            background-color: transparent;
+            color: var(--off-white);
+            border: none;
+            border-radius: 0;
+            padding: 12px 20px;
+            text-align: left;
+            box-shadow: none;
+            transition: background-color 0.2s ease, color 0.2s ease;
+            width: 100%;
+            font-weight: bold;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] .stButton > button:hover {
+            background-color: rgba(238, 27, 46, 0.3);
+            color: var(--off-white);
+            transform: none;
+            border-left: 4px solid var(--secondary-red);
+        }
+
+        .stTextInput > div > div > input,
+        .stDateInput > div > input,
+        .stTimeInput > div > input,
+        .stNumberInput > div > input {
+            background-color: var(--off-white);
+            color: var(--primary-dark);
+            border: 1px solid var(--light-gray);
+            border-radius: 8px;
+            padding: 10px;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            font-weight: bold;
+        }
+        .stTextInput > div > div > input:focus,
+        .stDateInput > div > input:focus,
+        .stTimeInput > div > input:focus,
+        .stNumberInput > div > input:focus {
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 2px rgba(0, 72, 144, 0.2);
+            outline: none;
+        }
+
+        .stTextInput > label,
+        .stDateInput > label,
+        .stTimeInput > label,
+        .stNumberInput > label,
+        .stSelectbox > label {
+            color: var(--primary-blue);
+            font-weight: bold;
+            margin-bottom: 5px;
+            display: block;
+        }
+
+        .stSelectbox > div > div {
+            background-color: var(--off-white);
+            color: var(--primary-dark);
+            border: 1px solid var(--light-gray);
+            border-radius: 8px;
+            padding: 5px;
+            font-weight: bold;
+        }
+        .stSelectbox > div > div:focus {
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 2px rgba(0, 72, 144, 0.2);
+            outline: none;
+        }
+        .stSelectbox .st-emotion-cache-1dp5ifq {
+            color: var(--primary-dark);
+        }
+
+        .streamlit-expander {
+            background-color: var(--off-white);
+            border: 1px solid var(--light-gray);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 1px 1px 5px rgba(0, 0, 0, 0.1);
+            transition: box-shadow 0.3s ease;
+        }
+        .streamlit-expander:hover {
+            box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        .streamlit-expanderContent {
+            color: var(--primary-dark);
+            padding-top: 10px;
+            font-weight: bold;
+        }
+        .streamlit-expanderHeader {
+            color: var(--primary-blue);
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        .stAlert {
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .stAlert.info {
+            background-color: rgba(0, 72, 144, 0.1);
+            color: var(--primary-dark);
+            border-left: 5px solid var(--primary-blue);
+        }
+        .stAlert.success {
+            background-color: rgba(0, 72, 144, 0.1);
+            color: var(--primary-dark);
+            border-left: 5px solid var(--primary-blue);
+        }
+        .stAlert.error {
+            background-color: rgba(238, 27, 46, 0.1);
+            color: var(--primary-dark);
+            border-left: 5px solid var(--secondary-red);
+        }
+
+        hr {
+            border-top: 2px solid var(--light-gray);
+            margin: 20px 0;
+        }
+
+        .st-emotion-cache-1c7y2qn, .st-emotion-cache-ocqkz7 {
+            gap: 20px;
+        }
+
+        .st-emotion-cache-10q7q0o {
+            background-color: var(--off-white);
+            border: 1px solid var(--light-gray);
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .info-card {
+            background-color: var(--off-white);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 5px solid var(--primary-blue);
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .login-title {
+            color: #004890;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 1.8em;
+        }
+        
+        .login-error {
+            background-color: rgba(238, 27, 46, 0.1);
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 15px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .stDataFrame {
+            border: 1px solid var(--light-gray);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .stDataFrame div[data-testid="stDataFrameResizable"] {
+            border-radius: 10px;
+        }
+
+    </style>
+    """, unsafe_allow_html=True)
+
+    if 'current_user' not in st.session_state:
+        st.session_state.current_user = None
+    if 'menu_selection' not in st.session_state:
+        st.session_state.menu_selection = "profile"
+    if 'is_admin' not in st.session_state:
+        st.session_state.is_admin = False
+
+    if st.session_state.current_user is None:
+        show_login()
+    else:
+        st.sidebar.markdown(f"""
+        <div style="text-align: center; margin-bottom: 30px;">
+            <h2 style="color: var(--off-white); font-size: 1.5em; font-weight: bold; 
+                        border-bottom: 2px solid var(--secondary-red); padding-bottom: 10px;">
+                Bienvenue, {st.session_state.current_user[3]}!
+            </h2>
+            <p style="color: var(--off-white); font-size: 0.9em;">
+                {st.session_state.get('Statut', 'Utilisateur')} - SOGEA-MAROC
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        menu_items = [
+            ("Mon Profil", "profile"),
+            ("Modifier le profil", "edit_profile")
+        ]
+        
+        if st.session_state.get('is_admin', False):
+            menu_items.append(("Settings", "settings"))
+
+        for label, key_name in menu_items:
+            if st.sidebar.button(label, key=f"menu_{key_name}"):
+                st.session_state.menu_selection = key_name
+                st.rerun()
+
+        if st.sidebar.button("Se déconnecter", key="sidebar_logout_btn"):
+            st.session_state.current_user = None
+            st.session_state.menu_selection = "profile"
+            st.session_state.is_admin = False
+            st.session_state.authenticated = False
+            st.rerun()
+
+        if st.session_state.menu_selection == "profile":
+            display_app_header("Mon Profil")
+            show_profile()
+        elif st.session_state.menu_selection == "edit_profile":
+            display_app_header("Modifier le profil")
+            show_edit_profile()
+        elif st.session_state.menu_selection == "settings":
+            display_app_header("Paramètres - Gestion des utilisateurs")
+            show_settings()
+
+if __name__ == "__main__":
+    main()

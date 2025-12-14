@@ -1,0 +1,22 @@
+# Environnements virtuels
+venv/
+env/
+*.pyc
+
+# Base de données SQLite
+*.db
+*.sqlite3
+
+# Fichiers temporaires
+__pycache__/
+*.log
+*.tmp
+
+# Fichiers sensibles
+.env
+secrets.toml
+config.py
+
+# Système
+.DS_Store
+Thumbs.db
