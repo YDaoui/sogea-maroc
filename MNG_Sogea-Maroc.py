@@ -166,7 +166,7 @@ def show_login():
 
         with col1:
             st.markdown("<div style='text-align: left;'>", unsafe_allow_html=True)
-            display_logo(os.path.join("Images", "SOGEA-MAROC.png"), width=280)
+            display_logo(os.path.join("Images", "SOGEA-MAROC.PNG"), width=280)
             st.markdown("</div>", unsafe_allow_html=True)
 
         with col2:
