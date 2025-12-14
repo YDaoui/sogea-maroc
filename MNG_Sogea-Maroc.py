@@ -878,11 +878,14 @@ def main():
     if st.session_state.current_user is None:
         show_login()
     else:
+        # CORRECTION ICI : Utiliser st.session_state.current_user[2] (username) au lieu de [3] (password)
+        username = st.session_state.current_user[2] if len(st.session_state.current_user) > 2 else "Utilisateur"
+        
         st.sidebar.markdown(f"""
         <div style="text-align: center; margin-bottom: 30px;">
             <h2 style="color: var(--off-white); font-size: 1.5em; font-weight: bold; 
                         border-bottom: 2px solid var(--secondary-red); padding-bottom: 10px;">
-                Bienvenue, {st.session_state.current_user[3]}!
+                Bienvenue, {username}!
             </h2>
             <p style="color: var(--off-white); font-size: 0.9em;">
                 {st.session_state.get('Statut', 'Utilisateur')} - SOGEA-MAROC
