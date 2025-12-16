@@ -224,16 +224,16 @@ def show_edit_profile():
     if 'show_edit_section' not in st.session_state:
         st.session_state.show_edit_section = False
     
-    st.subheader("Modification des profils utilisateurs")
+   # st.subheader("Modification des profils utilisateurs")
     
     
-    st.markdown("### Recherche et gestion des utilisateurs")
+    # st.markdown("### Recherche et gestion des utilisateurs")
     
    
     col_search, col_add = st.columns([3, 1])
     
     with col_search:
-        st.markdown("#### 🔍 Rechercher par CIN")
+       # st.markdown("#### Rechercher par CIN")
         cin_search = st.text_input(
             "Entrez le CIN de l'utilisateur :",
             placeholder="Ex: AB123456",
@@ -246,12 +246,12 @@ def show_edit_profile():
             search_button = st.button("Rechercher", key="search_cin_button", use_container_width=True)
     
     with col_add:
-        st.markdown("#### ➕ Ajouter")
-        st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
-        add_button = st.button("Nouvel utilisateur", 
-                              key="add_new_user_button",
-                              use_container_width=True,
-                              help="Ajouter un nouvel utilisateur")
+
+        
+        add_button = st.button("➕", 
+                      key="add_new_user_button",
+                      use_container_width=True,
+                      help="Ajouter un nouvel utilisateur")
     
     
     with col_clear:
@@ -275,10 +275,10 @@ def show_edit_profile():
                     st.session_state.selected_user_id = user_data[0]
                     st.session_state.selected_user_data = user_data
                     st.session_state.show_edit_section = True
-                    st.success(f"Utilisateur trouvé : {user_data[3]} {user_data[4]}")
+                    #st.success(f"Utilisateur trouvé : {user_data[3]} {user_data[4]}")
                 else:
                     st.session_state.show_edit_section = False
-                    st.info(f"Aucun utilisateur trouvé avec le CIN : {cin_search}")
+                   # st.info(f"Aucun utilisateur trouvé avec le CIN : {cin_search}")
         except Exception as e:
             st.error(f"Erreur lors de la recherche : {e}")
     
@@ -347,9 +347,9 @@ def show_edit_profile():
                     if st.session_state.get('is_admin', False):
                         statut = st.selectbox(
                             "Statut *",
-                            ["Utilisateur", "Administrateur", "Superviseur", "Manager"],
-                            index=["Utilisateur", "Administrateur", "Superviseur", "Manager"].index(current_statut) 
-                            if current_statut in ["Utilisateur", "Administrateur", "Superviseur", "Manager"] else 0,
+                            ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"],
+                            index=["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"].index(current_statut) 
+                            if current_statut in ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"] else 0,
                             key="edit_profile_statut"
                         )
                     else:
@@ -492,7 +492,7 @@ def show_edit_profile():
                     
                     statut = st.selectbox(
                         "Statut *",
-                        ["Utilisateur", "Administrateur", "Superviseur", "Manager"],
+                        ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"],
                         key="add_user_statut"
                     )
                 
@@ -552,7 +552,7 @@ def show_edit_profile():
     
     
     else:
-        st.markdown("### 📊 Liste des utilisateurs existants")
+        st.markdown("###  Liste des utilisateurs existants")
         
         try:
             with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
@@ -570,7 +570,7 @@ def show_edit_profile():
                 st.markdown(f"**Total des utilisateurs :** {len(users_df)}")
                 
                 
-                st.markdown("#### Tableau des utilisateurs")
+               # st.markdown("#### Tableau des utilisateurs")
                 st.dataframe(
                     users_df[["CIN", "Nom d'utilisateur", "Prénom", "Nom", "Email", "Statut"]],
                     column_config={
@@ -586,7 +586,7 @@ def show_edit_profile():
                     height=400
                 )
                 
-                # Statistiques
+               
                 st.markdown("---")
                 col_stat1, col_stat2 = st.columns(2)
                 
@@ -604,7 +604,7 @@ def show_edit_profile():
                         cin_not_null = users_df["CIN"].notna().sum()
                         st.write(f"**Avec CIN** : {cin_not_null} utilisateurs")
                 
-                # Bouton de téléchargement
+                
                 csv = users_df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label=" Télécharger la liste (CSV)",
@@ -621,8 +621,8 @@ def show_edit_profile():
             st.error(f"Erreur lors du chargement des utilisateurs : {e}")
 
 def show_settings():
-    st.subheader("Gestion des utilisateurs")   
-    st.markdown("---")
+   # st.subheader("Gestion des utilisateurs")   
+   # st.markdown("---")
     
    
     if 'user_found' not in st.session_state:
@@ -634,7 +634,7 @@ def show_settings():
     
   
     st.markdown("### Gestion des utilisateurs")
-    col_search1, col_search2 = st.columns([1, 1])
+    col_search1, col_search2 = st.columns([2, 1])
     
     with col_search1:
         cin_search = st.text_input("Recherche d'utilisateur par CIN :", 
@@ -646,8 +646,10 @@ def show_settings():
         st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
-            search_button = st.button(" Rechercher", key="cin_search_button", use_container_width=True)
+           # search_button = st.button(" Rechercher", key="cin_search_button", use_container_width=True)
+            pass
         with col_btn2:
+            search_button = st.button(" Rechercher", key="cin_search_button", use_container_width=True)
             add_button = st.button("➕", key="add_user_button", 
                                    use_container_width=True,
                                    help="Ajouter un nouvel utilisateur")
@@ -720,8 +722,8 @@ def show_settings():
                 phone = st.text_input("Téléphone", value=user_data[6] if len(user_data) > 6 else "", key="edit_user_phone")
                 statut = st.selectbox(
                     "Statut *",
-                    ["Utilisateur", "Administrateur", "Superviseur", "Manager"],
-                    index=["Utilisateur", "Administrateur", "Superviseur", "Manager"].index(user_data[9]) if user_data[9] in ["Utilisateur", "Administrateur", "Superviseur", "Manager"] else 0,
+                    ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"],
+                    index=["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"].index(user_data[9]) if user_data[9] in ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"] else 0,
                     key="edit_user_statut"
                 )
             
@@ -830,7 +832,7 @@ def show_settings():
                 phone = st.text_input("Téléphone", key="add_user_phone")
                 statut = st.selectbox(
                     "Statut *",
-                    ["Utilisateur", "Administrateur", "Superviseur", "Manager"],
+                    ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"],
                     key="add_user_statut"
                 )
             
@@ -878,7 +880,7 @@ def show_settings():
                     except Exception as e:
                         st.error(f"Erreur lors de la création : {e}")
     
-    st.markdown("---")
+    #st.markdown("---")
     st.subheader("Liste des utilisateurs existants")
     
     try:
@@ -888,14 +890,14 @@ def show_settings():
             users = c.fetchall()
         
         if users:
-            df = pd.DataFrame(
+            df = pd.DataFrame(  
                 users,
                 columns=["CIN", "Nom d'utilisateur", "Prénom", "Nom", "Email", "Téléphone", "Statut"]
             )
             
             st.markdown(f"**Total des utilisateurs :** {len(df)}")
             
-            st.markdown("### Tableau des utilisateurs")
+           # st.markdown("### Tableau des utilisateurs")
             
             st.dataframe(
                 df,
@@ -932,10 +934,249 @@ def show_settings():
                             st.metric(label=f"Statut: {statut_name}", value=count)
             
         else:
-            st.info("Aucun utilisateur trouvé dans la base de données.")
-            
+           # st.info("Aucun utilisateur trouvé dans la base de données.")
+            pass
     except Exception as e:
         st.error(f"Erreur lors du chargement des utilisateurs : {e}")
+
+def show_sor_page():
+    """Page SOR (Suivi Opérationnel de Routine) pour HSE et Chef de chantier"""
+    
+    # Afficher le header de la page
+    display_app_header("Suivi Opérationnel de Routine (SOR)")
+    
+    # Informations sur l'utilisateur connecté
+    user = st.session_state.current_user
+    user_name = get_user_name(user)
+    user_statut = get_user_status(user)
+    
+    # Afficher un message de bienvenue
+   # st.markdown(f"""
+  #  <div class='info-card'>
+ #       <h3 style='color: var(--primary-blue); margin-top: 0;'>
+  #          Bienvenue dans le module SOR - {user_name}
+   #     </h3>
+    #    <p style='font-size: 1.1em;'>
+    #       Vous êtes connecté en tant que <strong>{user_statut}</strong>.
+    #    Ce module est réservé aux équipes HSE et Chefs de chantier.
+       # </p>
+    #</div>
+   # """, unsafe_allow_html=True)
+    
+    # Section principale SOR
+  #  st.markdown("---")
+    styled_subheader(" Fonctionnalités SOR")
+    
+    # Créer des onglets pour les différentes fonctionnalités
+    tab1, tab2, tab3, tab4 = st.tabs([
+        " Nouveau SOR", 
+        " SOR en cours", 
+        " SOR terminés", 
+        " Statistiques"
+    ])
+    
+    with tab1:
+        st.markdown("### Créer un nouveau SOR")
+        
+        with st.form(key="new_sor_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                sor_date = st.date_input("Date du SOR", value=date.today())
+                chantier = st.selectbox(
+                    "Chantier",
+                    ["Chantier A - Casablanca", "Chantier B - Rabat", "Chantier C - Marrakech", 
+                     "Chantier D - Tanger", "Chantier E - Agadir"],
+                    index=0
+                )
+                type_intervention = st.selectbox(
+                    "Type d'intervention",
+                    ["Visite de sécurité", "Audit HSE", "Inspection équipements", 
+                     "Formation sécurité", "Réunion sécurité", "Autre"],
+                    index=0
+                )
+            
+            with col2:
+                Déclarant = st.text_input(
+                    "Déclarant",
+                    value=user_name,
+                    disabled=True
+                )
+                statut_sor = st.selectbox(
+                    "Statut",
+                    ["Planifié", "En cours", "À reporter", "Urgent"],
+                    index=0
+                )
+                priorite = st.select_slider(
+                    "Priorité",
+                    options=["Basse", "Moyenne", "Haute", "Critique"],
+                    value="Moyenne"
+                )
+            
+            st.markdown("### Description de l'intervention")
+            description = st.text_area(
+                "Description détaillée",
+                placeholder="Décrivez l'intervention à effectuer...",
+                height=150
+            )
+            
+            st.markdown("### Points de contrôle")
+            col_check1, col_check2 = st.columns(2)
+            
+            with col_check1:
+                epi_verifie = st.checkbox("EPI vérifiés")
+                signalisation = st.checkbox("Signalisation en place")
+                acces_securise = st.checkbox("Accès sécurisé")
+            
+            with col_check2:
+                equipements_ok = st.checkbox("Équipements vérifiés")
+                procédures_respectees = st.checkbox("Procédures respectées")
+                risques_identifies = st.checkbox("Risques identifiés")
+            
+            st.markdown("### Photos / Documents")
+            photo_upload = st.file_uploader(
+                "Ajouter une photo (optionnel)",
+                type=['png', 'jpg', 'jpeg'],
+                accept_multiple_files=False
+            )
+            
+            st.markdown("---")
+            
+            col_submit, col_reset = st.columns(2)
+            with col_submit:
+                submit_sor = st.form_submit_button("Enregistrer le SOR", use_container_width=True)
+            with col_reset:
+                reset_sor = st.form_submit_button(" Réinitialiser", use_container_width=True)
+            
+            if submit_sor:
+                if not description:
+                    st.error("Veuillez saisir une description pour le SOR")
+                else:
+                    # Ici, normalement, vous enregistreriez dans la base de données
+                    # Pour l'instant, simulation
+                    st.success(f" SOR créé avec succès pour le chantier {chantier}")
+                    st.info(f"Date : {sor_date} | Priorité : {priorite} | Statut : {statut_sor}")
+                    
+                    # Réinitialiser le formulaire
+                    st.rerun()
+    
+    with tab2:
+        st.markdown("### SOR en cours de traitement")
+        
+        # Données simulées pour la démonstration
+        sor_en_cours = [
+            {
+                "id": "SOR-2024-001",
+                "chantier": "Chantier A - Casablanca",
+                "date": "2024-01-15",
+                "Déclarant": user_name,
+                "priorite": "Haute",
+                "statut": "En cours"
+            },
+            {
+                "id": "SOR-2024-002",
+                "chantier": "Chantier B - Rabat",
+                "date": "2024-01-14",
+                "Déclarant": "Ahmed Benani",
+                "priorite": "Moyenne",
+                "statut": "Planifié"
+            },
+            {
+                "id": "SOR-2024-003",
+                "chantier": "Chantier C - Marrakech",
+                "date": "2024-01-13",
+                "Déclarant": user_name,
+                "priorite": "Critique",
+                "statut": "En cours"
+            }
+        ]
+        
+        for sor in sor_en_cours:
+            with st.expander(f"🔴 {sor['id']} - {sor['chantier']} - Priorité: {sor['priorite']}"):
+                col_info, col_action = st.columns([3, 1])
+                
+                with col_info:
+                    st.write(f"**Date :** {sor['date']}")
+                    st.write(f"**Déclarant :** {sor['Déclarant']}")
+                    st.write(f"**Statut :** {sor['statut']}")
+                
+                with col_action:
+                    if st.button(" Modifier", key=f"edit_{sor['id']}"):
+                        st.info(f"Modification du SOR {sor['id']} - Fonctionnalité à implémenter")
+                    
+                    if st.button(" Terminer", key=f"complete_{sor['id']}"):
+                        st.success(f"SOR {sor['id']} marqué comme terminé")
+                        st.rerun()
+    
+    with tab3:
+        st.markdown("### Historique des SOR terminés")
+        
+        sor_termines = [
+            {
+                "id": "SOR-2023-045",
+                "chantier": "Chantier D - Tanger",
+                "date": "2023-12-20",
+                "Déclarant": user_name,
+                "resultat": "Conforme"
+            },
+            {
+                "id": "SOR-2023-044",
+                "chantier": "Chantier A - Casablanca",
+                "date": "2023-12-18",
+                "Déclarant": "Fatima Zahra",
+                "resultat": "Non-conformité mineure"
+            }
+        ]
+        
+        for sor in sor_termines:
+            st.markdown(f"""
+            <div style='background-color: #f0f0f0; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>
+                <strong>🔵 {sor['id']} - {sor['chantier']}</strong><br>
+                Date: {sor['date']} | Déclarant: {sor['Déclarant']} | 
+                Résultat: <span style='color: {'green' if sor['resultat'] == 'Conforme' else 'orange'}'>
+                {sor['resultat']}</span>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with tab4:
+        st.markdown("### Statistiques SOR")
+        
+        col_stat1, col_stat2, col_stat3 = st.columns(3)
+        
+        with col_stat1:
+            st.metric("SOR créés ce mois", "15", "+3")
+        
+        with col_stat2:
+            st.metric("SOR en cours", "8", "-1")
+        
+        with col_stat3:
+            st.metric("Taux de conformité", "92%", "+2%")
+        
+        st.markdown("---")
+        
+        # Graphique simple (simulé)
+        st.markdown("#### Répartition par chantier")
+        data = pd.DataFrame({
+            'Chantier': ['Casablanca', 'Rabat', 'Marrakech', 'Tanger', 'Agadir'],
+            'SOR': [5, 3, 4, 2, 1]
+        })
+        st.bar_chart(data.set_index('Chantier'))
+    
+    # Section pour les rapports
+    st.markdown("---")
+    styled_subheader(" Rapports")
+    
+    col_report1, col_report2 = st.columns(2)
+    
+    with col_report1:
+        if st.button(" Générer rapport mensuel", use_container_width=True):
+            st.info("Génération du rapport mensuel en cours...")
+            st.success("Rapport généré avec succès !")
+    
+    with col_report2:
+        if st.button(" Exporter vers Excel", use_container_width=True):
+            st.info("Exportation des données SOR vers Excel...")
+            st.success("Exportation terminée !")
 
 def main():
     if 'authenticated' in st.session_state and st.session_state.authenticated:
@@ -1193,6 +1434,28 @@ def main():
         .stDataFrame div[data-testid="stDataFrameResizable"] {
             border-radius: 10px;
         }
+        
+        /* Styles supplémentaires pour SOR */
+        .sor-card {
+            background-color: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 5px solid var(--primary-blue);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .sor-high-priority {
+            border-left: 5px solid #EE1B2E;
+        }
+        
+        .sor-medium-priority {
+            border-left: 5px solid #FFA500;
+        }
+        
+        .sor-low-priority {
+            border-left: 5px solid #008000;
+        }
 
     </style>
     """, unsafe_allow_html=True)
@@ -1212,6 +1475,9 @@ def main():
         user_first_name = user[3] if len(user) > 3 and user[3] else ""
         user_last_name = user[4] if len(user) > 4 and user[4] else ""
         user_statut = user[9] if len(user) > 9 else "Utilisateur"
+        
+        # Déterminer si l'utilisateur a accès à SOR
+        has_sor_access = user_statut in ["HSE", "Chef.Chentier"]
         
         # Afficher le bon message dans la sidebar
         if user_first_name and user_last_name:
@@ -1234,10 +1500,15 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
+        # Menu en fonction du statut de l'utilisateur
         menu_items = [
             ("Mon Profil", "profile"),
             ("Modifier le profil", "edit_profile")
         ]
+        
+        # Ajouter SOR pour HSE et Chef de chantier
+        if has_sor_access:
+            menu_items.insert(1, ("Safety Observation Report", "sor"))
         
         if st.session_state.get('is_admin', False):
             menu_items.append(("Settings", "settings"))
@@ -1254,6 +1525,7 @@ def main():
             st.session_state.authenticated = False
             st.rerun()
 
+        # Afficher la page correspondante
         if st.session_state.menu_selection == "profile":
             display_app_header("Mon Profil")
             show_profile()
@@ -1263,6 +1535,8 @@ def main():
         elif st.session_state.menu_selection == "settings":
             display_app_header("Gestion des utilisateurs")
             show_settings()
+        elif st.session_state.menu_selection == "sor":
+            show_sor_page()
 
 if __name__ == "__main__":
     main()
