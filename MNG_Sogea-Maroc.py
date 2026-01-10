@@ -611,68 +611,95 @@ def get_user_name(user):
         return user[1] if len(user) > 1 else "Utilisateur"
 
 def show_login():
-    col1, col2, col3 = st.columns([1,5,1.8])
+    # Utiliser une seule colonne avec un layout vertical
+    st.markdown("""
+    <style>
+    .login-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 80vh;
+    }
+    .login-logo {
+        margin-bottom: 40px;
+    }
+    .login-form {
+        width: 100%;
+        max-width: 400px;
+    }
+    @media (max-width: 768px) {
+        .login-form {
+            max-width: 90%;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Conteneur principal
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    
+    # Logo - prend la largeur du formulaire
+    st.markdown('<div class="login-logo">', unsafe_allow_html=True)
+    display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=350)  # Ajustez selon besoin
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Formulaire de connexion
+    st.markdown('<div class="login-form">', unsafe_allow_html=True)
+    
+    login = st.text_input("Nom d'utilisateur : ", key="login_username")
+    password = st.text_input("Mot de passe :", type="password", key="login_password")
+    
+    col_btn1, col_btn2 = st.columns(2)
+    
+    with col_btn1:
+        if st.button("Se connecter", key="login_button", use_container_width=True):
+            is_authenticated, user_id = authenticate(login, password)
+            handle_login_result(is_authenticated, user_id)
+    
+    with col_btn2:
+        if st.button("Annuler", key="cancel_button", use_container_width=True):
+            st.info("Connexion annulée")
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    with col1:
-        st.markdown("<div style='text-align: left;'>", unsafe_allow_html=True)
-        display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=680)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with col2:
-       # st.subheader("Page de connexion")
-        login = st.text_input("Nom d'utilisateur : ", key="login_username")
-        password = st.text_input("Mot de passe :", type="password", key="login_password")
-        
-        btn_col1, btn_col2 = st.columns(2)
-        
-        is_authenticated = False
-        user_id = None
-        
-        with btn_col1:
-            if st.button("Se connecter", key="login_button", use_container_width=True):
-                is_authenticated, user_id = authenticate(login, password)
-        
-        if is_authenticated and user_id is not None:
-            try:
-                with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                    c = conn.cursor()
-                    c.execute("SELECT * FROM Users WHERE ID_User=?", (user_id,))
-                    user = c.fetchone()
+def handle_login_result(is_authenticated, user_id):
+    """Gère le résultat de la tentative de connexion"""
+    if is_authenticated and user_id is not None:
+        try:
+            with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                c = conn.cursor()
+                c.execute("SELECT * FROM Users WHERE ID_User=?", (user_id,))
+                user = c.fetchone()
+                
+                if user:
+                    user_name = get_user_name(user)
+                    user_statut = get_user_status(user)
+                    user_service = get_user_service(user)
                     
-                    if user:
-                        user_name = get_user_name(user)
-                        user_statut = get_user_status(user)
-                        user_service = get_user_service(user)
-                        
-                        # Initialisation propre de la session
-                        st.session_state.clear()
-                        st.session_state.update({
-                            "authenticated": True,
-                            "current_user": user,
-                            "ID_User": user_id,
-                            "Nom_Prenom": user_name,
-                            "Statut": user_statut,
-                            "Service": user_service,
-                            "is_admin": user_service == "Admin",
-                            "edit_mode": False,
-                            "menu_selection": "profil"
-                        })
-                        
-                        st.success(f"Connexion réussie en tant que {user_name}!")
-                        time.sleep(0.5)
-                        st.rerun()
-            except Exception as e:
-                st.error(f"Erreur base de données : {e}")
-        elif not is_authenticated and st.session_state.get('login_button_clicked', False):
-            st.error("Échec de l'authentification. Veuillez vérifier vos informations.")
-        
-        with btn_col2:
-            if st.button("Annuler", key="cancel_button", use_container_width=True):
-                st.info("Connexion annulée")
-                st.rerun()
-
-    with col3:
-        pass
+                    # Initialisation propre de la session
+                    st.session_state.clear()
+                    st.session_state.update({
+                        "authenticated": True,
+                        "current_user": user,
+                        "ID_User": user_id,
+                        "Nom_Prenom": user_name,
+                        "Statut": user_statut,
+                        "Service": user_service,
+                        "is_admin": user_service == "Admin",
+                        "edit_mode": False,
+                        "menu_selection": "profil"
+                    })
+                    
+                    st.success(f"Connexion réussie en tant que {user_name}!")
+                    time.sleep(0.5)
+                    st.rerun()
+        except Exception as e:
+            st.error(f"Erreur base de données : {e}")
+    elif not is_authenticated:
+        st.error("Échec de l'authentification. Veuillez vérifier vos informations.")
 
 def show_profile_page():
     """Page Profil unique qui combine affichage et modification"""
