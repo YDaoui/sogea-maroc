@@ -615,11 +615,11 @@ def show_login():
 
     with col1:
         st.markdown("<div style='text-align: left;'>", unsafe_allow_html=True)
-        display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=280)
+        display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=480)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
-        st.subheader("Page de connexion")
+       # st.subheader("Page de connexion")
         login = st.text_input("Nom d'utilisateur : ", key="login_username")
         password = st.text_input("Mot de passe :", type="password", key="login_password")
         
