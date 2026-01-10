@@ -354,3 +354,14 @@ def apply_custom_styles():
 
     </style>
     """, unsafe_allow_html=True)
+
+def get_user_service(user):
+
+  
+        if len(user) > 10:
+            service = user[10]
+        
+            if service is not None and str(service).strip():
+                return str(service).strip()
+    
+        return "Utilisateur"

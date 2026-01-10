@@ -1,12 +1,17 @@
 import streamlit as st
+import numpy as np
+import matplotlib.pyplot as plt
 import sqlite3
 import bcrypt
-import datetime
-from datetime import date
+import datetime as dt  # Correction du conflit
+from datetime import date, datetime, timedelta  
+import time
 from PIL import Image
 import os
 import base64
 import pandas as pd
+from io import BytesIO
+from SOR import show_sor_page
 
 def get_base64_icon(image_path):
     try:
@@ -38,15 +43,506 @@ def setup_db():
     with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
         c = conn.cursor()
         
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS EnergyTracking (
+                ID_Tracking INTEGER PRIMARY KEY AUTOINCREMENT,
+                Date_Tracking DATE NOT NULL,
+                Type_Tracking TEXT NOT NULL,
+                Categorie_Tracking TEXT NOT NULL,
+                Quantite REAL NOT NULL,
+                Unite TEXT NOT NULL,
+                Cout REAL,
+                Localisation TEXT,
+                Observations TEXT,
+                ID_User INTEGER,
+                Date_Saisie TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (ID_User) REFERENCES Users(ID_User)
+            )
+        ''')
+        
+        c.execute("PRAGMA table_info(Users)")
+        columns = [column[1] for column in c.fetchall()]
+        
+        if 'Service' not in columns:
+            c.execute("ALTER TABLE Users ADD COLUMN Service TEXT")
+        
         c.execute("SELECT * FROM Users WHERE Username=?", ("Admin",))
         admin_user = c.fetchone()
         
         if not admin_user:
             hashed_pw = hash_password("Admin10")
-            c.execute("INSERT INTO Users (Username, Password, FirstName_User, LastName_User, Email_User, Phone_User, CIN_User, Statut_User) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                     ("Admin", hashed_pw, "Administrateur", "SOGEA", "admin@sogeamaroc.ma", "0000000000", "ADMIN001", "Administrateur"))
+            c.execute("INSERT INTO Users (Username, Password, FirstName_User, LastName_User, Email_User, Phone_User, CIN_User, Statut_User, Service) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     ("Admin", hashed_pw, "Administrateur", "SOGEA", "admin@sogeamaroc.ma", "0000000000", "ADMIN001", "Administrateur", "Admin"))
         
         conn.commit()
+
+def get_user_menu_items(user_service):
+    """Retourne les éléments du menu selon le service de l'utilisateur"""
+    
+    base_menu = [
+        ("  Profil", "profil"),
+        ("  Se déconnecter", "logout")
+    ]
+    
+    if user_service == "Admin":
+        return [
+            ("  Profil", "profil"),
+            ("  Safety Observation Report", "sor"),
+            ("  PréTask", "pretask"),
+            ("  Energy Tracking", "energy_tracking"),
+            ("  Settings", "settings"),
+            ("  Se déconnecter", "logout")
+        ]
+    
+    elif user_service == "HSE":
+        return [
+            ("  Profil", "profil"),
+            ("  Safety Observation Report", "sor"),
+            ("  PréTask", "pretask"),
+            ("  Energy Tracking", "energy_tracking"),
+            ("  Se déconnecter", "logout")
+        ]
+    
+    else:
+        return base_menu
+
+def show_edit_form(user):
+    """Affiche le formulaire d'édition du profil"""
+    
+    with st.form(key="profile_edit_form"):
+        st.markdown("#### Modifier les informations")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            CIN = st.text_input("CIN *", 
+                                value=user[7] if len(user) > 7 else "", 
+                                key="edit_profile_cin")
+            username = st.text_input("Nom d'utilisateur *", 
+                                    value=user[1],
+                                    key="edit_profile_username")
+            first_name = st.text_input("Prénom *", 
+                                      value=user[3] if len(user) > 3 else "",
+                                      key="edit_profile_first_name")
+            last_name = st.text_input("Nom de famille *", 
+                                     value=user[4] if len(user) > 4 else "",
+                                     key="edit_profile_last_name")
+        
+        with col2:
+            email = st.text_input("Email", 
+                                 value=user[5] if len(user) > 5 else "",
+                                 key="edit_profile_email")
+            phone = st.text_input("Téléphone", 
+                                 value=user[6] if len(user) > 6 else "",
+                                 key="edit_profile_phone")
+            
+            current_service = user[10] if len(user) > 10 else "Utilisateur"
+            service = st.selectbox(
+                "Service",
+                ["Utilisateur", "Admin", "HSE", "Production", "Maintenance", "Direction", "Finance", "RH"],
+                index=["Utilisateur", "Admin", "HSE", "Production", "Maintenance", "Direction", "Finance", "RH"].index(current_service) 
+                if current_service in ["Utilisateur", "Admin", "HSE", "Production", "Maintenance", "Direction", "Finance", "RH"] else 0,
+                key="edit_profile_service"
+            )
+            
+            current_statut = user[9] if len(user) > 9 else 'Utilisateur'
+            if st.session_state.get('is_admin', False) or st.session_state.get('Service') == "Admin":
+                statut = st.selectbox(
+                    "Statut *",
+                    ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"],
+                    index=["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"].index(current_statut) 
+                    if current_statut in ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"] else 0,
+                    key="edit_profile_statut"
+                )
+            else:
+                statut = current_statut
+                st.text_input("Statut", value=statut, disabled=True)
+        
+        st.markdown("#### Changer le mot de passe")
+        st.info("Laissez vide pour ne pas modifier le mot de passe")
+        
+        col_pass1, col_pass2 = st.columns(2)
+        with col_pass1:
+            new_password = st.text_input("Nouveau mot de passe", 
+                                        type="password", 
+                                        key="edit_profile_new_password",
+                                        placeholder="Entrez un nouveau mot de passe")
+        with col_pass2:
+            confirm_password = st.text_input("Confirmer le mot de passe", 
+                                            type="password", 
+                                            key="edit_profile_confirm_password",
+                                            placeholder="Confirmez le nouveau mot de passe")
+        
+        st.markdown("**Champs obligatoires ***")
+        
+        col_btn1, col_btn2, col_btn3 = st.columns(3)
+        with col_btn1:
+            submitted = st.form_submit_button("💾 Enregistrer", 
+                                             use_container_width=True)
+        with col_btn2:
+            canceled = st.form_submit_button("✖ Annuler", 
+                                            use_container_width=True)
+        
+        if canceled:
+            st.session_state.edit_mode = False
+            st.session_state.selected_user_id = None
+            st.session_state.selected_user_data = None
+            st.rerun()
+        
+        if submitted:
+            if not all([CIN, username, first_name, last_name]):
+                st.error("Veuillez remplir tous les champs obligatoires (*)")
+            elif new_password and new_password != confirm_password:
+                st.error("Les mots de passe ne correspondent pas !")
+            else:
+                try:
+                    with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                        c = conn.cursor()
+                        
+                        c.execute("""
+                            UPDATE Users 
+                            SET CIN_User=?, Username=?, FirstName_User=?, LastName_User=?, 
+                                Email_User=?, Phone_User=?, Statut_User=?, Service=?
+                            WHERE ID_User=?
+                        """, (CIN, username, first_name, last_name, 
+                              email, phone, statut, service, user[0]))
+                        
+                        if new_password:
+                            hashed_password = hash_password(new_password)
+                            c.execute("UPDATE Users SET Password=? WHERE ID_User=?", 
+                                     (hashed_password, user[0]))
+                        
+                        conn.commit()
+                        
+                        c.execute("SELECT * FROM Users WHERE ID_User=?", (user[0],))
+                        updated_user = c.fetchone()
+                        st.session_state.current_user = updated_user
+                        st.session_state.Nom_Prenom = get_user_name(updated_user)
+                        st.session_state.Statut = statut
+                        st.session_state.Service = service
+                        st.session_state.is_admin = (service == "Admin")
+                    
+                    st.success(f"Profil mis à jour avec succès !")
+                    st.session_state.edit_mode = False
+                    st.session_state.selected_user_id = None
+                    st.session_state.selected_user_data = None
+                    st.rerun()
+                    
+                except sqlite3.IntegrityError as e:
+                    if "CIN_User" in str(e) or "CIN" in str(e):
+                        st.error("Ce CIN existe déjà dans la base de données !")
+                    elif "Username" in str(e):
+                        st.error("Ce nom d'utilisateur existe déjà !")
+                    else:
+                        st.error(f"Erreur d'intégrité : {e}")
+                except Exception as e:
+                    st.error(f"Erreur lors de la mise à jour : {e}")
+
+def show_profile_info(user):
+    """Affiche les informations du profil en lecture seule"""
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(f"**Nom d'utilisateur :** {user[1]}")  
+        st.write(f"**Prénom :** {user[3] if len(user) > 3 and user[3] else 'Non spécifié'}")  
+        st.write(f"**Nom de famille :** {user[4] if len(user) > 4 and user[4] else 'Non spécifié'}")  
+        st.write(f"**CIN :** {user[7] if len(user) > 7 and user[7] else 'Non spécifié'}")  
+    with col2:
+        st.write(f"**Statut :** {user[9] if len(user) > 9 else 'Utilisateur'}")  
+        st.write(f"**Service :** {user[10] if len(user) > 10 else 'Non spécifié'}")  
+        st.write(f"**Email :** {user[5] if len(user) > 5 and user[5] else 'Non spécifié'}")  
+        st.write(f"**Téléphone :** {user[6] if len(user) > 6 and user[6] else 'Non spécifié'}") 
+
+    st.markdown(f"""
+    <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; 
+                border-left: 5px solid #004890; margin-top: 20px;'>
+        <p style='color: #004890; font-weight: bold; margin: 0;'>
+            Statut : Connecté • Dernière connexion : {datetime.now().strftime('%d/%m/%Y %H:%M')}
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+def show_user_management_section():
+    """Section de gestion des utilisateurs pour les administrateurs"""
+    
+    st.markdown("###  Gestion des utilisateurs")
+    
+    if 'user_search_mode' not in st.session_state:
+        st.session_state.user_search_mode = False
+    if 'show_add_user_form' not in st.session_state:
+        st.session_state.show_add_user_form = False
+    
+    col_opt1, col_opt2, col_opt3 = st.columns(3)
+    
+    with col_opt1:
+        if st.button(" Rechercher utilisateur", use_container_width=True):
+            st.session_state.user_search_mode = True
+            st.session_state.show_add_user_form = False
+            st.rerun()
+    
+    with col_opt2:
+        if st.button(" Ajouter utilisateur", use_container_width=True):
+            st.session_state.show_add_user_form = True
+            st.session_state.user_search_mode = False
+            st.rerun()
+    
+    with col_opt3:
+        if st.button(" Liste complète", use_container_width=True):
+            st.session_state.user_search_mode = False
+            st.session_state.show_add_user_form = False
+            st.rerun()
+    
+    if st.session_state.user_search_mode:
+        show_user_search_section()
+    elif st.session_state.show_add_user_form:
+        show_add_user_section()
+    else:
+        show_all_users_section()
+
+def show_user_search_section():
+    """Section de recherche d'utilisateurs"""
+    
+    st.markdown("#### Recherche d'utilisateur")
+    
+    col_search, col_action = st.columns([3, 1])
+    
+    with col_search:
+        search_term = st.text_input(
+            "Rechercher par CIN ou nom d'utilisateur :",
+            placeholder="Ex: AB123456 ou john.doe",
+            key="user_search_input"
+        )
+    
+    with col_action:
+        st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
+        if st.button("🔍 Rechercher", key="search_user_button", use_container_width=True):
+            if search_term:
+                try:
+                    with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                        c = conn.cursor()
+                        
+                        c.execute("""
+                            SELECT * FROM Users 
+                            WHERE CIN_User LIKE ? OR Username LIKE ? OR 
+                                  FirstName_User LIKE ? OR LastName_User LIKE ?
+                        """, (f"%{search_term}%", f"%{search_term}%", 
+                              f"%{search_term}%", f"%{search_term}%"))
+                        users = c.fetchall()
+                        
+                        if users:
+                            st.session_state.search_results = users
+                            st.session_state.show_search_results = True
+                        else:
+                            st.info(f"Aucun utilisateur trouvé pour : {search_term}")
+                            st.session_state.show_search_results = False
+                except Exception as e:
+                    st.error(f"Erreur lors de la recherche : {e}")
+    
+    if 'search_results' in st.session_state and st.session_state.get('show_search_results', False):
+        st.markdown("#### Résultats de la recherche")
+        
+        users_df = pd.DataFrame(
+            st.session_state.search_results,
+            columns=["ID", "Username", "Password", "FirstName", "LastName", 
+                    "Email", "Phone", "CIN", "Team", "Statut", "Service"]
+        )
+        
+        for idx, user in enumerate(st.session_state.search_results):
+            with st.expander(f"{user[3]} {user[4]} - {user[1]} ({user[7]})"):
+                col_info, col_action = st.columns([3, 1])
+                
+                with col_info:
+                    st.write(f"**CIN :** {user[7]}")
+                    st.write(f"**Email :** {user[5]}")
+                    st.write(f"**Téléphone :** {user[6]}")
+                    st.write(f"**Statut :** {user[9]}")
+                    st.write(f"**Service :** {user[10] if len(user) > 10 else 'Non spécifié'}")
+                
+                with col_action:
+                    if st.button("Modifier", key=f"edit_searched_{user[0]}", use_container_width=True):
+                        st.session_state.edit_mode = True
+                        st.session_state.selected_user_id = user[0]
+                        st.session_state.selected_user_data = user
+                        st.rerun()
+        
+        if st.button("Effacer les résultats", key="clear_search_results"):
+            del st.session_state.search_results
+            st.session_state.show_search_results = False
+            st.rerun()
+
+def show_add_user_section():
+    """Section d'ajout d'un nouvel utilisateur"""
+    
+    st.markdown("#### Ajouter un nouvel utilisateur")
+    
+    if st.button("✖ Fermer", key="close_add_form"):
+        st.session_state.show_add_user_form = False
+        st.rerun()
+    
+    with st.form(key="add_user_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            CIN = st.text_input("CIN *", 
+                                placeholder="Ex: AB123456",
+                                key="add_user_cin")
+            username = st.text_input("Nom d'utilisateur *", 
+                                    placeholder="Ex: john.doe",
+                                    key="add_user_username")
+            password = st.text_input("Mot de passe *", 
+                                   type="password",
+                                   placeholder="Mot de passe sécurisé",
+                                   key="add_user_password")
+            first_name = st.text_input("Prénom *", 
+                                      placeholder="Ex: John",
+                                      key="add_user_first_name")
+            last_name = st.text_input("Nom de famille *", 
+                                     placeholder="Ex: Doe",
+                                     key="add_user_last_name")
+        
+        with col2:
+            email = st.text_input("Email", 
+                                 placeholder="Ex: john.doe@sogeamaroc.ma",
+                                 key="add_user_email")
+            phone = st.text_input("Téléphone", 
+                                 placeholder="Ex: +212 6XXXXXXXX",
+                                 key="add_user_phone")
+            
+            statut = st.selectbox(
+                "Statut *",
+                ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"],
+                key="add_user_statut"
+            )
+            
+            service = st.selectbox(
+                "Service *",
+                ["Utilisateur", "Admin", "HSE", "Production", "Maintenance", "Direction", "Finance", "RH"],
+                key="add_user_service"
+            )
+        
+        st.markdown("**Champs obligatoires ***")
+        
+        col_submit, col_reset = st.columns(2)
+        with col_submit:
+            submitted = st.form_submit_button(" Enregistrer", 
+                                             use_container_width=True)
+        with col_reset:
+            reset_button = st.form_submit_button(" Réinitialiser", 
+                                                use_container_width=True)
+        
+        if reset_button:
+            st.rerun()
+        
+        if submitted:
+            if not all([CIN, username, password, first_name, last_name, statut, service]):
+                st.error("Veuillez remplir tous les champs obligatoires (*)")
+            else:
+                try:
+                    hashed_password = hash_password(password)
+                    
+                    with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                        c = conn.cursor()
+                        c.execute("""
+                            INSERT INTO Users 
+                            (CIN_User, Username, Password, FirstName_User, LastName_User, 
+                             Email_User, Phone_User, Statut_User, Service) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (CIN, username, hashed_password, first_name, last_name, 
+                             email or "", phone or "", statut, service))
+                        conn.commit()
+                    
+                    st.success(f"Utilisateur {username} créé avec succès !")
+                    st.session_state.show_add_user_form = False
+                    st.rerun()
+                except sqlite3.IntegrityError as e:
+                    if "CIN_User" in str(e):
+                        st.error(f"Le CIN '{CIN}' existe déjà !")
+                    elif "Username" in str(e):
+                        st.error(f"Le nom d'utilisateur '{username}' existe déjà !")
+                    else:
+                        st.error(f"Erreur d'intégrité : {e}")
+                except Exception as e:
+                    st.error(f"Erreur lors de la création : {e}")
+
+def show_all_users_section():
+    """Affiche la liste complète des utilisateurs"""
+    
+    st.markdown("####  Liste des utilisateurs")
+    
+    try:
+        with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+            c = conn.cursor()
+            c.execute("SELECT ID_User, CIN_User, Username, FirstName_User, LastName_User, Email_User, Phone_User, Statut_User, Service FROM Users")
+            all_users = c.fetchall()
+        
+        if all_users:
+            users_df = pd.DataFrame(
+                all_users,
+                columns=["ID", "CIN", "Nom d'utilisateur", "Prénom", "Nom", "Email", "Téléphone", "Statut", "Service"]
+            )
+            
+            st.markdown(f"**Total des utilisateurs :** {len(users_df)}")
+            
+            for user in all_users:
+                with st.expander(f"{user[3]} {user[4]} - {user[2]} ({user[7]})"):
+                    col_info, col_action = st.columns([3, 1])
+                    
+                    with col_info:
+                        st.write(f"**CIN :** {user[1]}")
+                        st.write(f"**Email :** {user[5]}")
+                        st.write(f"**Téléphone :** {user[6]}")
+                        st.write(f"**Statut :** {user[7]}")
+                        st.write(f"**Service :** {user[8] if len(user) > 8 else 'Non spécifié'}")
+                    
+                    with col_action:
+                        if st.button("Modifier", key=f"edit_{user[0]}", use_container_width=True):
+                            st.session_state.edit_mode = True
+                            st.session_state.selected_user_id = user[0]
+                            st.session_state.selected_user_data = user
+                            st.rerun()
+            
+            col_stat1, col_stat2 = st.columns(2)
+            
+            with col_stat1:
+                st.markdown("##### Répartition par service")
+                if not users_df["Service"].empty:
+                    service_counts = users_df["Service"].value_counts()
+                    for service_name, count in service_counts.items():
+                        st.write(f"**{service_name}** : {count} utilisateur(s)")
+            
+            with col_stat2:
+                st.markdown("##### Export des données")
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    users_df.to_excel(writer, index=False, sheet_name='Utilisateurs')
+                excel_data = output.getvalue()
+                
+                st.download_button(
+                    label=" Télécharger la liste (Excel)",
+                    data=excel_data,
+                    file_name="users_sogea_maroc.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_users_list"
+                )
+                
+        else:
+            st.info("Aucun utilisateur trouvé dans la base de données.")
+            
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des utilisateurs : {e}")
+
+def show_settings():
+    """Page Settings"""
+    display_app_header("Gestion des utilisateurs")
+    
+    # Vérification directe du service
+    user_service = st.session_state.get('Service', '')
+    if user_service != "Admin":
+        st.error("⚠️ Vous n'avez pas accès à cette fonctionnalité.")
+        st.info("Cette fonctionnalité est réservée au service Admin.")
+        return
+    
+    show_user_management_section()
 
 def hash_password(password):
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
@@ -78,14 +574,6 @@ def display_app_header(page_title):
             {page_title}
         </h1>
         """, unsafe_allow_html=True)
-    st.markdown("---")
-
-def styled_subheader(text):
-    st.markdown(f"""
-    <h2 style='color: #004890; font-weight: bold; margin-top: 20px;'>
-        {text}
-    </h2>
-    """, unsafe_allow_html=True)
 
 def authenticate(login, password):
     try:
@@ -95,7 +583,6 @@ def authenticate(login, password):
             user = c.fetchone()
             
             if user:
-                
                 stored_password = user[2]  
                 if verify_password(password, stored_password):
                     return True, user[0]  
@@ -104,1088 +591,557 @@ def authenticate(login, password):
     
     return False, None
 
-def get_user_team(user_id):
-    return "Administration"
-
 def get_user_status(user):
-   
     return user[9] if len(user) > 9 else "Utilisateur"
 
+def get_user_service(user):
+    """Récupère le service de l'utilisateur"""
+    if len(user) > 10:
+        service = user[10]
+        if service is not None and str(service).strip():
+            return str(service).strip()
+    return "Utilisateur"
+
 def get_user_name(user):
-    
     first_name = user[3] if len(user) > 3 and user[3] else ""
     last_name = user[4] if len(user) > 4 and user[4] else ""
     if first_name and last_name:
         return f"{first_name} {last_name}"
     else:
-        return user[1] if len(user) > 1 else "Utilisateur"  
+        return user[1] if len(user) > 1 else "Utilisateur"
 
 def show_login():
-    if "authenticated" not in st.session_state or not st.session_state["authenticated"]:
-        st.markdown("""
-        <style>
-            .stApp > div:first-child {
-                background-color: white !important;
-            }
-            [data-testid="stAppViewContainer"] {
-                background-color: white !important;
-            }
-            body {
-                background-color: white !important;
-            }
-        </style>
-        """, unsafe_allow_html=True)   
-    
-    if "authenticated" not in st.session_state or not st.session_state["authenticated"]:
-        col1, col2, col3 = st.columns([1,5,1.8])
+    col1, col2, col3 = st.columns([1,5,1.8])
 
-        with col1:
-            st.markdown("<div style='text-align: left;'>", unsafe_allow_html=True)
-            display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=280)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with col2:
-            st.subheader("Page de connexion")
-            login = st.text_input("Nom d'utilisateur : ", key="login_username")
-            password = st.text_input("Mot de passe :", type="password", key="login_password")
-            
-            btn_col1, btn_col2 = st.columns(2)
-            
-            with btn_col1:
-                if st.button("Se connecter", key="login_button", use_container_width=True):
-                    is_authenticated, user_id = authenticate(login, password)
-                    
-                    if is_authenticated:
-                        try:
-                            with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                                c = conn.cursor()
-                                c.execute("SELECT * FROM Users WHERE ID_User=?", (user_id,))
-                                user = c.fetchone()
-                                
-                                if user:
-                                    user_team = get_user_team(user_id)
-                                    user_status = get_user_status(user)
-                                    user_name = get_user_name(user)
-                                    
-                                    st.session_state.update({
-                                        "authenticated": True,
-                                        "current_user": user,
-                                        "ID_User": user_id,
-                                        "Nom_Prenom": user_name,
-                                        "Team": user_team, 
-                                        "Statut": user_status,
-                                        "is_admin": user_status == "Administrateur"
-                                    })
-                                    
-                                    st.success(f"Connexion réussie en tant que {user_name}!")
-                                    st.rerun()
-                        except Exception as e:
-                            st.error(f"Erreur base de données : {e}")
-                    else:
-                        st.error("Échec de l'authentification. Veuillez vérifier vos informations.")
-            
-            with btn_col2:
-                if st.button("Annuler", key="cancel_button", use_container_width=True):
-                    st.info("Connexion annulée")
-                    st.rerun()
-
-        with col3:
-            pass
-
-def show_profile():
-    user = st.session_state.current_user
-
-    st.markdown("""
-    <div class='info-card'>
-        <h3 style='color: var(--primary-blue); margin-top: 0;'>Informations de profil</h3>
-    """, unsafe_allow_html=True)
-
-    col1, col2 = st.columns(2)
     with col1:
-        st.write(f"**Nom d'utilisateur :** {user[1]}")  
-        st.write(f"**Prénom :** {user[3] if len(user) > 3 and user[3] else 'Non spécifié'}")  
-        st.write(f"**Nom de famille :** {user[4] if len(user) > 4 and user[4] else 'Non spécifié'}")  
-        st.write(f"**CIN :** {user[7] if len(user) > 7 and user[7] else 'Non spécifié'}")  
+        st.markdown("<div style='text-align: left;'>", unsafe_allow_html=True)
+        display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=280)
+        st.markdown("</div>", unsafe_allow_html=True)
+
     with col2:
-        st.write(f"**Statut :** {user[9] if len(user) > 9 else 'Utilisateur'}")  
-        st.write(f"**Email :** {user[5] if len(user) > 5 and user[5] else 'Non spécifié'}")  
-        st.write(f"**Téléphone :** {user[6] if len(user) > 6 and user[6] else 'Non spécifié'}") 
+        st.subheader("Page de connexion")
+        login = st.text_input("Nom d'utilisateur : ", key="login_username")
+        password = st.text_input("Mot de passe :", type="password", key="login_password")
+        
+        btn_col1, btn_col2 = st.columns(2)
+        
+        is_authenticated = False
+        user_id = None
+        
+        with btn_col1:
+            if st.button("Se connecter", key="login_button", use_container_width=True):
+                is_authenticated, user_id = authenticate(login, password)
+        
+        if is_authenticated and user_id is not None:
+            try:
+                with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                    c = conn.cursor()
+                    c.execute("SELECT * FROM Users WHERE ID_User=?", (user_id,))
+                    user = c.fetchone()
+                    
+                    if user:
+                        user_name = get_user_name(user)
+                        user_statut = get_user_status(user)
+                        user_service = get_user_service(user)
+                        
+                        # Initialisation propre de la session
+                        st.session_state.clear()
+                        st.session_state.update({
+                            "authenticated": True,
+                            "current_user": user,
+                            "ID_User": user_id,
+                            "Nom_Prenom": user_name,
+                            "Statut": user_statut,
+                            "Service": user_service,
+                            "is_admin": user_service == "Admin",
+                            "edit_mode": False,
+                            "menu_selection": "profil"
+                        })
+                        
+                        st.success(f"Connexion réussie en tant que {user_name}!")
+                        time.sleep(0.5)
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Erreur base de données : {e}")
+        elif not is_authenticated and st.session_state.get('login_button_clicked', False):
+            st.error("Échec de l'authentification. Veuillez vérifier vos informations.")
+        
+        with btn_col2:
+            if st.button("Annuler", key="cancel_button", use_container_width=True):
+                st.info("Connexion annulée")
+                st.rerun()
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    with col3:
+        pass
 
-def show_edit_profile():
-    user = st.session_state.current_user
+def show_profile_page():
+    """Page Profil unique qui combine affichage et modification"""
     
+    display_app_header("Profil")
     
+    if 'edit_mode' not in st.session_state:
+        st.session_state.edit_mode = False
     if 'selected_user_id' not in st.session_state:
         st.session_state.selected_user_id = None
     if 'selected_user_data' not in st.session_state:
         st.session_state.selected_user_data = None
-    if 'show_edit_section' not in st.session_state:
-        st.session_state.show_edit_section = False
     
-   # st.subheader("Modification des profils utilisateurs")
+    user = st.session_state.current_user
     
+    col_title, col_btn = st.columns([4, 1])
     
-    # st.markdown("### Recherche et gestion des utilisateurs")
+    with col_title:
+        st.markdown("### Informations du profil")
     
-   
-    col_search, col_add = st.columns([3, 1])
-    
-    with col_search:
-       # st.markdown("#### Rechercher par CIN")
-        cin_search = st.text_input(
-            "Entrez le CIN de l'utilisateur :",
-            placeholder="Ex: AB123456",
-            key="search_cin_input",
-            label_visibility="collapsed"
-        )
-        
-        col_search_btn, col_clear = st.columns([1, 2])
-        with col_search_btn:
-            search_button = st.button("Rechercher", key="search_cin_button", use_container_width=True)
-    
-    with col_add:
-
-        
-        add_button = st.button("➕", 
-                      key="add_new_user_button",
-                      use_container_width=True,
-                      help="Ajouter un nouvel utilisateur")
-    
-    
-    with col_clear:
-        if st.session_state.show_edit_section:
-            if st.button("Effacer", key="clear_search_button", use_container_width=True):
-                st.session_state.show_edit_section = False
+    with col_btn:
+        if st.session_state.edit_mode:
+            if st.button(" Annuler", key="cancel_edit_button", use_container_width=True):
+                st.session_state.edit_mode = False
                 st.session_state.selected_user_id = None
                 st.session_state.selected_user_data = None
                 st.rerun()
-    
-    
-    user_data = None
-    if search_button and cin_search:
-        try:
-            with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                c = conn.cursor()
-                c.execute("SELECT * FROM Users WHERE CIN_User=?", (cin_search.strip().upper(),))
-                user_data = c.fetchone()
-                
-                if user_data:
-                    st.session_state.selected_user_id = user_data[0]
-                    st.session_state.selected_user_data = user_data
-                    st.session_state.show_edit_section = True
-                    #st.success(f"Utilisateur trouvé : {user_data[3]} {user_data[4]}")
-                else:
-                    st.session_state.show_edit_section = False
-                   # st.info(f"Aucun utilisateur trouvé avec le CIN : {cin_search}")
-        except Exception as e:
-            st.error(f"Erreur lors de la recherche : {e}")
-    
-   
-    if add_button:
-        st.session_state.show_edit_section = True
-        st.session_state.selected_user_id = None
-        st.session_state.selected_user_data = None
-        st.rerun()
-    
-    st.markdown("---")
-    
-    
-    if st.session_state.show_edit_section:
-       
-        if st.session_state.selected_user_data:
-           
-            try:
-                with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                    c = conn.cursor()
-                    c.execute("SELECT * FROM Users WHERE ID_User=?", (st.session_state.selected_user_id,))
-                    full_user_data = c.fetchone()
-                    
-                    if not full_user_data:
-                        st.error("Utilisateur non trouvé dans la base de données")
-                        st.session_state.show_edit_section = False
-                        st.session_state.selected_user_id = None
-                        st.session_state.selected_user_data = None
-                        st.rerun()
-                        return
-            except Exception as e:
-                st.error(f"Erreur lors du chargement des données utilisateur : {e}")
-                return
-            
-            
-            username_display = full_user_data[1] if len(full_user_data) > 1 else "Utilisateur"
-            st.markdown(f"###  Modifier l'utilisateur : {username_display}")
-            
-            with st.form(key="edit_profile_form"):
-                st.markdown("#### Informations personnelles")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    CIN = st.text_input("CIN *", 
-                                        value=full_user_data[7] if len(full_user_data) > 7 else "", 
-                                        key="edit_profile_cin")
-                    username = st.text_input("Nom d'utilisateur *", 
-                                            value=username_display,
-                                            key="edit_profile_username")
-                    first_name = st.text_input("Prénom *", 
-                                              value=full_user_data[3] if len(full_user_data) > 3 else "",
-                                              key="edit_profile_first_name")
-                    last_name = st.text_input("Nom de famille *", 
-                                             value=full_user_data[4] if len(full_user_data) > 4 else "",
-                                             key="edit_profile_last_name")
-                
-                with col2:
-                    email = st.text_input("Email", 
-                                         value=full_user_data[5] if len(full_user_data) > 5 else "",
-                                         key="edit_profile_email")
-                    phone = st.text_input("Téléphone", 
-                                         value=full_user_data[6] if len(full_user_data) > 6 else "",
-                                         key="edit_profile_phone")
-                    
-                    current_statut = full_user_data[9] if len(full_user_data) > 9 else 'Utilisateur'
-                    if st.session_state.get('is_admin', False):
-                        statut = st.selectbox(
-                            "Statut *",
-                            ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"],
-                            index=["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"].index(current_statut) 
-                            if current_statut in ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"] else 0,
-                            key="edit_profile_statut"
-                        )
-                    else:
-                        statut = current_statut
-                        st.text_input("Statut", value=statut, disabled=True)
-                
-                
-                st.markdown("---")
-                st.markdown("#### Changer le mot de passe")
-                st.info("Laissez vide pour ne pas modifier le mot de passe")
-                
-                col_pass1, col_pass2 = st.columns(2)
-                with col_pass1:
-                    new_password = st.text_input("Nouveau mot de passe", 
-                                                type="password", 
-                                                key="edit_profile_new_password",
-                                                placeholder="Entrez un nouveau mot de passe")
-                with col_pass2:
-                    confirm_password = st.text_input("Confirmer le mot de passe", 
-                                                    type="password", 
-                                                    key="edit_profile_confirm_password",
-                                                    placeholder="Confirmez le nouveau mot de passe")
-                
-                st.markdown("---")
-                st.markdown("**Champs obligatoires ***")
-                
-               
-                col_btn1, col_btn2, col_btn3 = st.columns(3)
-                with col_btn1:
-                    submitted = st.form_submit_button(" Enregistrer", 
-                                                     use_container_width=True)
-                with col_btn2:
-                    delete_button = st.form_submit_button(" Supprimer", 
-                                                         use_container_width=True)
-                with col_btn3:
-                    canceled = st.form_submit_button("✖ Annuler", 
-                                                    use_container_width=True)
-                
-                if canceled:
-                    st.session_state.show_edit_section = False
-                    st.session_state.selected_user_id = None
-                    st.session_state.selected_user_data = None
-                    st.rerun()
-                
-                if delete_button:
-                    try:
-                        with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                            c = conn.cursor()
-                            c.execute("DELETE FROM Users WHERE ID_User=?", (st.session_state.selected_user_id,))
-                            conn.commit()
-                        
-                        st.success("Utilisateur supprimé avec succès !")
-                        st.session_state.show_edit_section = False
-                        st.session_state.selected_user_id = None
-                        st.session_state.selected_user_data = None
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f" Erreur lors de la suppression : {e}")
-                
-                if submitted:
-                    
-                    if not all([CIN, username, first_name, last_name]):
-                        st.error("Veuillez remplir tous les champs obligatoires (*)")
-                    elif new_password and new_password != confirm_password:
-                        st.error("Les mots de passe ne correspondent pas !")
-                    else:
-                        try:
-                            with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                                c = conn.cursor()
-                                
-                                
-                                c.execute("""
-                                    UPDATE Users 
-                                    SET CIN_User=?, Username=?, FirstName_User=?, LastName_User=?, 
-                                        Email_User=?, Phone_User=?, Statut_User=?
-                                    WHERE ID_User=?
-                                """, (CIN, username, first_name, last_name, 
-                                      email, phone, statut, st.session_state.selected_user_id))
-                                
-                                
-                                if new_password:
-                                    hashed_password = hash_password(new_password)
-                                    c.execute("UPDATE Users SET Password=? WHERE ID_User=?", 
-                                             (hashed_password, st.session_state.selected_user_id))
-                                
-                                conn.commit()
-                                
-                                
-                                if st.session_state.current_user[0] == st.session_state.selected_user_id:
-                                    c.execute("SELECT * FROM Users WHERE ID_User=?", (st.session_state.selected_user_id,))
-                                    updated_user = c.fetchone()
-                                    st.session_state.current_user = updated_user
-                            
-                            st.success(f" Profil de {first_name} {last_name} mis à jour avec succès !")
-                            st.rerun()
-                            
-                        except sqlite3.IntegrityError as e:
-                            if "CIN_User" in str(e) or "CIN" in str(e):
-                                st.error(" Ce CIN existe déjà dans la base de données !")
-                            elif "Username" in str(e):
-                                st.error(" Ce nom d'utilisateur existe déjà !")
-                            else:
-                                st.error(f" Erreur d'intégrité : {e}")
-                        except Exception as e:
-                            st.error(f" Erreur lors de la mise à jour : {e}")
-        
-        
         else:
-            st.markdown("### ➕ Ajouter un nouvel utilisateur")
-            
-            with st.form(key="add_user_form"):
-                st.markdown("#### Informations personnelles")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    CIN = st.text_input("CIN *", 
-                                        placeholder="Ex: AB123456",
-                                        key="add_user_cin")
-                    username = st.text_input("Nom d'utilisateur *", 
-                                            placeholder="Ex: john.doe",
-                                            key="add_user_username")
-                    password = st.text_input("Mot de passe *", 
-                                           type="password",
-                                           placeholder="Mot de passe sécurisé",
-                                           key="add_user_password")
-                    first_name = st.text_input("Prénom *", 
-                                              placeholder="Ex: John",
-                                              key="add_user_first_name")
-                    last_name = st.text_input("Nom de famille *", 
-                                             placeholder="Ex: Doe",
-                                             key="add_user_last_name")
-                
-                with col2:
-                    email = st.text_input("Email", 
-                                         placeholder="Ex: john.doe@sogeamaroc.ma",
-                                         key="add_user_email")
-                    phone = st.text_input("Téléphone", 
-                                         placeholder="Ex: +212 6XXXXXXXX",
-                                         key="add_user_phone")
-                    
-                    statut = st.selectbox(
-                        "Statut *",
-                        ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"],
-                        key="add_user_statut"
-                    )
-                
-                st.markdown("---")
-                st.markdown("**Champs obligatoires ***")
-                
-                
-                col_btn1, col_btn2, col_btn3 = st.columns(3)
-                with col_btn1:
-                    submitted = st.form_submit_button("Enregistrer", 
-                                                     use_container_width=True)
-                with col_btn2:
-                    reset_button = st.form_submit_button("Réinitialiser", 
-                                                        use_container_width=True)
-                with col_btn3:
-                    canceled = st.form_submit_button("✖ Annuler", 
-                                                    use_container_width=True)
-                
-                if canceled:
-                    st.session_state.show_edit_section = False
-                    st.rerun()
-                
-                if reset_button:
-                    st.rerun()
-                
-                if submitted:
-                    
-                    if not all([CIN, username, password, first_name, last_name, statut]):
-                        st.error("Veuillez remplir tous les champs obligatoires (*)")
-                    else:
-                        try:
-                            hashed_password = hash_password(password)
-                            
-                            with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                                c = conn.cursor()
-                                c.execute("""
-                                    INSERT INTO Users 
-                                    (CIN_User, Username, Password, FirstName_User, LastName_User, 
-                                     Email_User, Phone_User, Statut_User) 
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                """, (CIN, username, hashed_password, first_name, last_name, 
-                                     email or "", phone or "", statut))
-                                conn.commit()
-                            
-                            st.success(f" Utilisateur {username} créé avec succès !")
-                            st.session_state.show_edit_section = False
-                            st.rerun()
-                        except sqlite3.IntegrityError as e:
-                            if "CIN_User" in str(e):
-                                st.error("❌ Ce CIN existe déjà dans la base de données !")
-                            elif "Username" in str(e):
-                                st.error("❌ Ce nom d'utilisateur existe déjà !")
-                            else:
-                                st.error(f" Erreur d'intégrité : {e}")
-                        except Exception as e:
-                            st.error(f" Erreur lors de la création : {e}")
+            if st.button(" Modifier", key="edit_profile_button", use_container_width=True):
+                st.session_state.edit_mode = True
+                st.session_state.selected_user_id = user[0]
+                st.session_state.selected_user_data = user
+                st.rerun()
     
-    
+    if st.session_state.edit_mode:
+        show_edit_form(user)
     else:
-        st.markdown("###  Liste des utilisateurs existants")
+        show_profile_info(user)
         
-        try:
-            with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                c = conn.cursor()
-                c.execute("SELECT ID_User, CIN_User, Username, FirstName_User, LastName_User, Email_User, Phone_User, Statut_User FROM Users")
-                all_users = c.fetchall()
-            
-            if all_users:
-                
-                users_df = pd.DataFrame(
-                    all_users,
-                    columns=["ID", "CIN", "Nom d'utilisateur", "Prénom", "Nom", "Email", "Téléphone", "Statut"]
-                )
-                
-                st.markdown(f"**Total des utilisateurs :** {len(users_df)}")
-                
-                
-               # st.markdown("#### Tableau des utilisateurs")
-                st.dataframe(
-                    users_df[["CIN", "Nom d'utilisateur", "Prénom", "Nom", "Email", "Statut"]],
-                    column_config={
-                        "CIN": st.column_config.TextColumn("CIN", width="small"),
-                        "Nom d'utilisateur": st.column_config.TextColumn("Nom d'utilisateur", width="medium"),
-                        "Prénom": st.column_config.TextColumn("Prénom", width="small"),
-                        "Nom": st.column_config.TextColumn("Nom", width="small"),
-                        "Email": st.column_config.TextColumn("Email", width="medium"),
-                        "Statut": st.column_config.TextColumn("Statut", width="small")
-                    },
-                    hide_index=True,
-                    use_container_width=True,
-                    height=400
-                )
-                
-               
-                st.markdown("---")
-                col_stat1, col_stat2 = st.columns(2)
-                
-                with col_stat1:
-                    st.markdown("#### Répartition par statut")
-                    if not users_df["Statut"].empty:
-                        statut_counts = users_df["Statut"].value_counts()
-                        for statut_name, count in statut_counts.items():
-                            st.write(f"**{statut_name}** : {count} utilisateur(s)")
-                
-                with col_stat2:
-                    st.markdown("#### Détails rapides")
-                    st.write(f"**Total** : {len(users_df)} utilisateurs")
-                    if not users_df["CIN"].empty:
-                        cin_not_null = users_df["CIN"].notna().sum()
-                        st.write(f"**Avec CIN** : {cin_not_null} utilisateurs")
-                
-                
-                csv = users_df.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label=" Télécharger la liste (CSV)",
-                    data=csv,
-                    file_name="users_sogea_maroc.csv",
-                    mime="text/csv",
-                    key="download_users_list"
-                )
-                
-            else:
-                st.info(" Aucun utilisateur trouvé dans la base de données.")
-                
-        except Exception as e:
-            st.error(f"Erreur lors du chargement des utilisateurs : {e}")
+        # Afficher la gestion des utilisateurs seulement pour les admins
+        if st.session_state.get('is_admin', False):
+            show_user_management_section()
 
-def show_settings():
-   # st.subheader("Gestion des utilisateurs")   
-   # st.markdown("---")
-    
-   
-    if 'user_found' not in st.session_state:
-        st.session_state.user_found = False
-    if 'current_user_cin' not in st.session_state:
-        st.session_state.current_user_cin = None
-    if 'show_add_form' not in st.session_state:
-        st.session_state.show_add_form = False
-    
-  
-    st.markdown("### Gestion des utilisateurs")
-    col_search1, col_search2 = st.columns([2, 1])
-    
-    with col_search1:
-        cin_search = st.text_input("Recherche d'utilisateur par CIN :", 
-                                   key="cin_search_input",
-                                   placeholder="Ex: AB123456",
-                                   label_visibility="visible")
-        
-    with col_search2:
-        st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-           # search_button = st.button(" Rechercher", key="cin_search_button", use_container_width=True)
-            pass
-        with col_btn2:
-            search_button = st.button(" Rechercher", key="cin_search_button", use_container_width=True)
-            add_button = st.button("➕", key="add_user_button", 
-                                   use_container_width=True,
-                                   help="Ajouter un nouvel utilisateur")
-    
-    
-    if add_button:
-        st.session_state.show_add_form = not st.session_state.show_add_form
-        st.session_state.user_found = False
-        st.session_state.current_user_cin = None
-        st.rerun()
-    
-    user_data = None
-    
-    
-    if st.session_state.user_found and st.session_state.current_user_cin:
-        try:
-            with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                c = conn.cursor()
-                c.execute("SELECT * FROM Users WHERE CIN_User=?", (st.session_state.current_user_cin,))
-                user_data = c.fetchone()
-        except:
-            st.session_state.user_found = False
-            st.session_state.current_user_cin = None
-    
-    if search_button and cin_search:
-        try:
-            with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                c = conn.cursor()
-                c.execute("SELECT * FROM Users WHERE CIN_User=?", (cin_search.strip(),))
-                user_data = c.fetchone()
-                
-                if user_data:
-                    st.session_state.user_found = True
-                    st.session_state.current_user_cin = cin_search.strip()
-                    st.session_state.show_add_form = False
-                    st.success(f"Utilisateur trouvé : {user_data[3]} {user_data[4]}")
-                else:
-                    st.session_state.user_found = False
-                    st.session_state.current_user_cin = None
-                    st.info(f"Aucun utilisateur trouvé avec le CIN : {cin_search}")
-        except Exception as e:
-            st.error(f"Erreur lors de la recherche : {e}")
-    
-   
-    if st.session_state.user_found:
-        if st.button("Nouvelle recherche", key="new_search_button"):
-            st.session_state.user_found = False
-            st.session_state.current_user_cin = None
-            st.rerun()
-    
-    st.markdown("---")
-    
-    
-    if st.session_state.user_found and user_data:
-        
-        username_display = user_data[1] if len(user_data) > 1 else "Utilisateur"
-        st.markdown(f"### Modifier l'utilisateur : {username_display}")
-        
-        with st.form(key="edit_user_form"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                CIN = st.text_input("CIN *", value=user_data[7] if len(user_data) > 7 else "", key="edit_user_cin", disabled=True)
-                username = st.text_input("Nom d'utilisateur *", value=user_data[1], key="edit_user_username")
-                first_name = st.text_input("Prénom *", value=user_data[3] if len(user_data) > 3 else "", key="edit_user_first_name")
-                last_name = st.text_input("Nom de famille *", value=user_data[4] if len(user_data) > 4 else "", key="edit_user_last_name")
-                
-            with col2:
-                email = st.text_input("Email", value=user_data[5] if len(user_data) > 5 else "", key="edit_user_email")
-                phone = st.text_input("Téléphone", value=user_data[6] if len(user_data) > 6 else "", key="edit_user_phone")
-                statut = st.selectbox(
-                    "Statut *",
-                    ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"],
-                    index=["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"].index(user_data[9]) if user_data[9] in ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"] else 0,
-                    key="edit_user_statut"
-                )
-            
-            st.markdown("**Champs obligatoires *")
-            
-            
-            st.markdown("---")
-            st.markdown("### Changer le mot de passe")
-            col_pass1, col_pass2 = st.columns(2)
-            with col_pass1:
-                new_password = st.text_input("Nouveau mot de passe", type="password", 
-                                            key="edit_user_new_password", 
-                                            placeholder="Laisser vide pour ne pas changer")
-            with col_pass2:
-                confirm_password = st.text_input("Confirmer le mot de passe", type="password",
-                                                key="edit_user_confirm_password",
-                                                placeholder="Laisser vide pour ne pas changer")
-            
-            btn_col1, btn_col2, btn_col3 = st.columns(3)
-            with btn_col1:
-                update_button = st.form_submit_button("Mettre à jour", use_container_width=True)
-            with btn_col2:
-                delete_button = st.form_submit_button("Supprimer l'utilisateur", use_container_width=True)
-            with btn_col3:
-                cancel_button = st.form_submit_button("Annuler", use_container_width=True)
-            
-            if cancel_button:
-                st.info("Modification annulée")
-                st.rerun()
-            
-            if delete_button:
-                try:
-                    with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                        c = conn.cursor()
-                        c.execute("DELETE FROM Users WHERE CIN_User=?", (user_data[7],))
-                        conn.commit()
-                    st.session_state.user_found = False
-                    st.session_state.current_user_cin = None
-                    st.success("Utilisateur supprimé avec succès !")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erreur lors de la suppression : {e}")
-            
-            if update_button:
-                if not all([CIN, username, first_name, last_name, statut]):
-                    st.error("Veuillez remplir tous les champs obligatoires (*)")
-                elif new_password and new_password != confirm_password:
-                    st.error("Les mots de passe ne correspondent pas !")
-                else:
-                    try:
-                        with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                            c = conn.cursor()
-                            
-                            
-                            update_data = (username, first_name, last_name, 
-                                          email or "", phone or "", 
-                                          statut, user_data[7])
-                            
-                           
-                            c.execute("""
-                                UPDATE Users 
-                                SET Username=?, FirstName_User=?, LastName_User=?, 
-                                    Email_User=?, Phone_User=?, Statut_User=?
-                                WHERE CIN_User=?
-                            """, update_data)
-                            
-                            
-                            if new_password:
-                                hashed_password = hash_password(new_password)
-                                c.execute("UPDATE Users SET Password=? WHERE CIN_User=?", 
-                                         (hashed_password, user_data[7]))
-                            
-                            conn.commit()
-                        
-                        st.success("Utilisateur mis à jour avec succès !")
-                        st.rerun()
-                    except sqlite3.IntegrityError as e:
-                        if "Username" in str(e):
-                            st.error(f"Le nom d'utilisateur '{username}' existe déjà !")
-                        else:
-                            st.error(f"Erreur d'intégrité : {e}")
-                    except Exception as e:
-                        st.error(f"Erreur lors de la mise à jour : {e}")
-    
-    # Afficher le formulaire d'ajout si le bouton plus a été cliqué
-    elif st.session_state.show_add_form:
-        st.markdown("### Ajouter un nouvel utilisateur")
-        
-        # Bouton pour masquer le formulaire
-        if st.button("✖ Masquer le formulaire", key="hide_form_button"):
-            st.session_state.show_add_form = False
-            st.rerun()
-        
-        with st.form(key="add_user_form"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                CIN = st.text_input("CIN *", key="add_user_cin", placeholder="Ex: AB123456")
-                username = st.text_input("Nom d'utilisateur *", key="add_user_username")
-                password = st.text_input("Mot de passe *", type="password", key="add_user_password")
-                first_name = st.text_input("Prénom *", key="add_user_first_name")
-                last_name = st.text_input("Nom de famille *", key="add_user_last_name")
-                
-            with col2:
-                email = st.text_input("Email", key="add_user_email")
-                phone = st.text_input("Téléphone", key="add_user_phone")
-                statut = st.selectbox(
-                    "Statut *",
-                    ["Utilisateur", "Administrateur", "Chef.Chentier", "HSE", "Gestionnaire"],
-                    key="add_user_statut"
-                )
-            
-            st.markdown("**Champs obligatoires *")
-            
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
-                submit_button = st.form_submit_button("Enregistrer", use_container_width=True)
-            with btn_col2:
-                cancel_button = st.form_submit_button("Annuler", use_container_width=True)
-            
-            if cancel_button:
-                st.info("Opération annulée")
-                st.session_state.show_add_form = False
-                st.rerun()
-            
-            if submit_button:
-                if not all([CIN, username, password, first_name, last_name, statut]):
-                    st.error("Veuillez remplir tous les champs obligatoires (*)")
-                else:
-                    try:
-                        hashed_password = hash_password(password)
-                        
-                        with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-                            c = conn.cursor()
-                            c.execute("""
-                                INSERT INTO Users 
-                                (CIN_User, Username, Password, FirstName_User, LastName_User, 
-                                 Email_User, Phone_User, Statut_User) 
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            """, (CIN, username, hashed_password, first_name, last_name, 
-                                 email or "", phone or "", statut))
-                            conn.commit()
-                        
-                        st.success(f"Utilisateur {username} créé avec succès !")
-                        st.session_state.show_add_form = False
-                        st.rerun()
-                    except sqlite3.IntegrityError as e:
-                        if "CIN_User" in str(e):
-                            st.error(f"Le CIN '{CIN}' existe déjà !")
-                        elif "Username" in str(e):
-                            st.error(f"Le nom d'utilisateur '{username}' existe déjà !")
-                        else:
-                            st.error(f"Erreur d'intégrité : {e}")
-                    except Exception as e:
-                        st.error(f"Erreur lors de la création : {e}")
-    
-    #st.markdown("---")
-    st.subheader("Liste des utilisateurs existants")
-    
-    try:
-        with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
-            c = conn.cursor()
-            c.execute("SELECT CIN_User, Username, FirstName_User, LastName_User, Email_User, Phone_User, Statut_User FROM Users")
-            users = c.fetchall()
-        
-        if users:
-            df = pd.DataFrame(  
-                users,
-                columns=["CIN", "Nom d'utilisateur", "Prénom", "Nom", "Email", "Téléphone", "Statut"]
-            )
-            
-            st.markdown(f"**Total des utilisateurs :** {len(df)}")
-            
-           # st.markdown("### Tableau des utilisateurs")
-            
-            st.dataframe(
-                df,
-                column_config={
-                    "CIN": st.column_config.TextColumn("CIN", width="medium"),
-                    "Nom d'utilisateur": st.column_config.TextColumn("Nom d'utilisateur", width="medium"),
-                    "Prénom": st.column_config.TextColumn("Prénom", width="medium"),
-                    "Nom": st.column_config.TextColumn("Nom", width="medium"),
-                    "Email": st.column_config.TextColumn("Email", width="large"),
-                    "Téléphone": st.column_config.TextColumn("Téléphone", width="medium"),
-                    "Statut": st.column_config.TextColumn("Statut", width="medium")
-                },
-                hide_index=True,
-                use_container_width=True,
-                height=400
-            )
-            
-            csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="Télécharger la liste des utilisateurs (CSV)",
-                data=csv,
-                file_name="users_sogea_maroc.csv",
-                mime="text/csv",
-                key="download_users_csv"
-            )
-            
-            st.markdown("### Répartition par statut")
-            if not df["Statut"].empty:
-                statut_counts = df["Statut"].value_counts()
-                cols = st.columns(min(4, len(statut_counts)))
-                for i, (statut_name, count) in enumerate(statut_counts.items()):
-                    if i < 4:
-                        with cols[i % len(cols)]:
-                            st.metric(label=f"Statut: {statut_name}", value=count)
-            
-        else:
-           # st.info("Aucun utilisateur trouvé dans la base de données.")
-            pass
-    except Exception as e:
-        st.error(f"Erreur lors du chargement des utilisateurs : {e}")
+def show_energy_tracking_page():
+    """Page de suivi énergétique"""
+    display_app_header("Suivi Énergétique")
 
-def show_sor_page():
-    """Page SOR (Suivi Opérationnel de Routine) pour HSE et Chef de chantier"""
+    # Vérification directe du service
+    user_service = st.session_state.get('Service', '')
+    if user_service not in ["Admin", "HSE"]:
+        st.error("⚠️ Vous n'avez pas accès à cette fonctionnalité.")
+        st.info("Cette fonctionnalité est réservée aux services Admin et HSE.")
+        return
     
-    # Afficher le header de la page
-    display_app_header("Suivi Opérationnel de Routine (SOR)")
+    tab1, tab2, tab3 = st.tabs([" Carburant         ", " Eau ", " Électricité"])
     
-    # Informations sur l'utilisateur connecté
-    user = st.session_state.current_user
-    user_name = get_user_name(user)
-    user_statut = get_user_status(user)
+    with tab1:
+        show_fuel_tracking()
     
-    # Afficher un message de bienvenue
-   # st.markdown(f"""
-  #  <div class='info-card'>
- #       <h3 style='color: var(--primary-blue); margin-top: 0;'>
-  #          Bienvenue dans le module SOR - {user_name}
-   #     </h3>
-    #    <p style='font-size: 1.1em;'>
-    #       Vous êtes connecté en tant que <strong>{user_statut}</strong>.
-    #    Ce module est réservé aux équipes HSE et Chefs de chantier.
-       # </p>
-    #</div>
-   # """, unsafe_allow_html=True)
+    with tab2:
+        show_water_tracking()
     
-    # Section principale SOR
-  #  st.markdown("---")
-    styled_subheader(" Fonctionnalités SOR")
+    with tab3:
+        show_electricity_tracking()
+
+def show_water_tracking():
+    """Onglet de suivi de l'eau"""
+    st.markdown("### Suivi de la consommation d'eau")
     
-    # Créer des onglets pour les différentes fonctionnalités
-    tab1, tab2, tab3, tab4 = st.tabs([
-        " Nouveau SOR", 
-        " SOR en cours", 
-        " SOR terminés", 
+    water_tab1, water_tab2, water_tab3, water_tab4 = st.tabs([
+        " Saisie des données", 
+        " Visualisation", 
+        " Historique", 
         " Statistiques"
     ])
     
-    with tab1:
-        st.markdown("### Créer un nouveau SOR")
+    with water_tab1:
+        show_water_data_entry()
+    
+    with water_tab2:
+        show_water_visualization()
+    
+    with water_tab3:
+        show_water_history()
+    
+    with water_tab4:
+        show_water_statistics()
+
+def show_water_data_entry():
+    """Formulaire de saisie des données eau"""
+    st.markdown("#### Saisir une nouvelle consommation d'eau")
+    
+    with st.form(key="water_entry_form"):
+        col1, col2 = st.columns(2)
         
-        with st.form(key="new_sor_form"):
+        with col1:
+            date_tracking = st.date_input("Date de la consommation", value=datetime.now())
+            type_water = st.selectbox(
+                "Type d'eau *",
+                ["Eau potable", "Eau usée", "Eau recyclée"],
+                key="water_type"
+            )
+            quantity = st.number_input("Quantité *", min_value=0.0, step=0.1, format="%.2f")
+            unit = st.selectbox("Unité *", ["m³", "L", "m³/jour", "L/jour"])
+        
+        with col2:
+            cost = st.number_input("Coût (DH)", min_value=0.0, step=0.1, format="%.2f")
+            location = st.text_input("Localisation (chantier/bâtiment)")
+            observations = st.text_area("Observations")
+        
+        col_submit, col_reset = st.columns(2)
+        
+        with col_submit:
+            submitted = st.form_submit_button(" Enregistrer", use_container_width=True)
+        
+        with col_reset:
+            reset = st.form_submit_button(" Réinitialiser", use_container_width=True)
+        
+        if submitted:
+            if quantity <= 0:
+                st.error("La quantité doit être supérieure à 0")
+            else:
+                try:
+                    with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+                        c = conn.cursor()
+                        c.execute("""
+                            INSERT INTO EnergyTracking 
+                            (Date_Tracking, Type_Tracking, Categorie_Tracking, Quantite, Unite, Cout, Localisation, Observations, ID_User)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            date_tracking, 
+                            "Eau", 
+                            type_water,
+                            quantity, 
+                            unit,
+                            cost if cost > 0 else None,
+                            location if location else None,
+                            observations if observations else None,
+                            st.session_state.ID_User
+                        ))
+                        conn.commit()
+                    
+                    st.success(f" Consommation d'eau ({type_water}) enregistrée avec succès !")
+                    st.balloons()
+                    
+                except Exception as e:
+                    st.error(f"Erreur lors de l'enregistrement : {e}")
+
+def show_water_visualization():
+    """Visualisation des données eau"""
+    st.markdown("#### Visualisation de la consommation d'eau")
+    
+    try:
+        with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+            query = """
+                SELECT Date_Tracking, Categorie_Tracking, SUM(Quantite) as Total_Quantite
+                FROM EnergyTracking 
+                WHERE Type_Tracking = 'Eau' 
+                    AND Date_Tracking >= date('now', '-30 days')
+                GROUP BY Date_Tracking, Categorie_Tracking
+                ORDER BY Date_Tracking
+            """
+            df = pd.read_sql_query(query, conn)
+        
+        if not df.empty:
+            df['Date_Tracking'] = pd.to_datetime(df['Date_Tracking'])
+            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            categories = df['Categorie_Tracking'].unique()
+            colors = {'Eau potable': '#004890', 'Eau usée': '#EE1B2E', 'Eau recyclée': '#00A859'}
+            
+            for category in categories:
+                category_data = df[df['Categorie_Tracking'] == category]
+                ax.plot(category_data['Date_Tracking'], category_data['Total_Quantite'], 
+                       marker='o', label=category, color=colors.get(category, '#000000'), linewidth=2)
+            
+            ax.set_xlabel('Date', fontweight='bold')
+            ax.set_ylabel('Quantité (m³/L)', fontweight='bold')
+            ax.set_title('Consommation d\'eau sur les 30 derniers jours', fontweight='bold', fontsize=14)
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            
+            st.pyplot(fig)
+            
+            st.markdown("##### Détails par type d'eau")
+            pivot_df = df.pivot_table(
+                index='Date_Tracking', 
+                columns='Categorie_Tracking', 
+                values='Total_Quantite',
+                aggfunc='sum'
+            ).fillna(0)
+            
+            st.dataframe(pivot_df, use_container_width=True)
+            
+        else:
+            st.info("Aucune donnée de consommation d'eau disponible pour les 30 derniers jours.")
+    
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des données : {e}")
+
+def show_water_history():
+    """Historique des consommations d'eau"""
+    st.markdown("#### Historique des consommations d'eau")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        start_date = st.date_input("Date début", value=datetime.now() - timedelta(days=30))
+    
+    with col2:
+        end_date = st.date_input("Date fin", value=datetime.now())
+    
+    with col3:
+        water_type_filter = st.selectbox(
+            "Type d'eau",
+            ["Tous", "Eau potable", "Eau usée", "Eau recyclée"]
+        )
+    
+    try:
+        with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+            query = """
+                SELECT 
+                    et.Date_Tracking,
+                    et.Categorie_Tracking,
+                    et.Quantite,
+                    et.Unite,
+                    et.Cout,
+                    et.Localisation,
+                    et.Observations,
+                    et.Date_Saisie,
+                    u.FirstName_User || ' ' || u.LastName_User as Saisi_Par
+                FROM EnergyTracking et
+                LEFT JOIN Users u ON et.ID_User = u.ID_User
+                WHERE et.Type_Tracking = 'Eau'
+                    AND et.Date_Tracking BETWEEN ? AND ?
+            """
+            
+            params = [start_date, end_date]
+            
+            if water_type_filter != "Tous":
+                query += " AND et.Categorie_Tracking = ?"
+                params.append(water_type_filter)
+            
+            query += " ORDER BY et.Date_Tracking DESC"
+            
+            df = pd.read_sql_query(query, conn, params=params)
+        
+        if not df.empty:
+            col_met1, col_met2, col_met3 = st.columns(3)
+            
+            with col_met1:
+                total_quantity = df['Quantite'].sum()
+                st.metric("Consommation totale", f"{total_quantity:.2f} m³/L")
+            
+            with col_met2:
+                total_cost = df['Cout'].sum()
+                st.metric("Coût total", f"{total_cost:.2f} DH")
+            
+            with col_met3:
+                avg_daily = total_quantity / len(df['Date_Tracking'].unique())
+                st.metric("Moyenne quotidienne", f"{avg_daily:.2f} m³/L/jour")
+            
+            st.markdown("##### Détails des enregistrements")
+            st.dataframe(
+                df,
+                column_config={
+                    "Date_Tracking": "Date",
+                    "Categorie_Tracking": "Type d'eau",
+                    "Quantite": "Quantité",
+                    "Unite": "Unité",
+                    "Cout": "Coût (DH)",
+                    "Localisation": "Localisation",
+                    "Observations": "Observations",
+                    "Date_Saisie": "Date saisie",
+                    "Saisi_Par": "Saisi par"
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Export en Excel
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Historique_Eau')
+            excel_data = output.getvalue()
+            
+            st.download_button(
+                label="📥 Télécharger l'historique (Excel)",
+                data=excel_data,
+                file_name=f"historique_eau_{start_date}_{end_date}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            
+        else:
+            st.info(f"Aucune donnée trouvée pour la période sélectionnée ({start_date} à {end_date})")
+    
+    except Exception as e:
+        st.error(f"Erreur lors du chargement de l'historique : {e}")
+
+def show_water_statistics():
+    """Statistiques sur la consommation d'eau"""
+    st.markdown("#### Statistiques de consommation d'eau")
+    
+    try:
+        with sqlite3.connect('BD_SOGEA-MAROC.db') as conn:
+            query_stats = """
+                SELECT 
+                    Categorie_Tracking as Type_Eau,
+                    COUNT(*) as Nombre_Enregistrements,
+                    SUM(Quantite) as Total_Consommation,
+                    AVG(Quantite) as Moyenne_Consommation,
+                    SUM(Cout) as Total_Cout,
+                    MIN(Date_Tracking) as Premiere_Date,
+                    MAX(Date_Tracking) as Derniere_Date
+                FROM EnergyTracking 
+                WHERE Type_Tracking = 'Eau'
+                GROUP BY Categorie_Tracking
+                ORDER BY Total_Consommation DESC
+            """
+            
+            stats_df = pd.read_sql_query(query_stats, conn)
+        
+        if not stats_df.empty:
+            for _, row in stats_df.iterrows():
+                with st.expander(f" {row['Type_Eau']}", expanded=True):
+                    col_stat1, col_stat2, col_stat3 = st.columns(3)
+                    
+                    with col_stat1:
+                        st.metric("Consommation totale", f"{row['Total_Consommation']:.2f} m³/L")
+                        st.metric("Moyenne", f"{row['Moyenne_Consommation']:.2f} m³/L")
+                    
+                    with col_stat2:
+                        st.metric("Coût total", f"{row['Total_Cout']:.2f} DH" if row['Total_Cout'] else "N/A")
+                        st.metric("Nombre d'enregistrements", int(row['Nombre_Enregistrements']))
+                    
+                    with col_stat3:
+                        st.write(f"**Période :**")
+                        st.write(f"Début : {row['Premiere_Date']}")
+                        st.write(f"Fin : {row['Derniere_Date']}")
+            
+            fig, ax = plt.subplots(figsize=(8, 8))
+            colors = ['#004890', '#EE1B2E', '#00A859']
+            ax.pie(
+                stats_df['Total_Consommation'], 
+                labels=stats_df['Type_Eau'], 
+                autopct='%1.1f%%',
+                colors=colors[:len(stats_df)],
+                startangle=90,
+                wedgeprops={'edgecolor': 'white', 'linewidth': 2}
+            )
+            ax.set_title('Répartition de la consommation d\'eau', fontweight='bold', fontsize=14)
+            
+            st.pyplot(fig)
+            
+        else:
+            st.info("Aucune statistique disponible pour la consommation d'eau.")
+    
+    except Exception as e:
+        st.error(f"Erreur lors du calcul des statistiques : {e}")
+
+def show_fuel_tracking():
+    """Onglet de suivi du carburant"""
+    st.markdown("### Suivi de la consommation de carburant")
+    
+    with st.form(key="fuel_placeholder"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.selectbox("Type de carburant", ["Gasoil", "Essence", "Gaz"])
+            st.number_input("Quantité (L)", min_value=0.0, step=0.1)
+            st.selectbox("Véhicule/Équipement", ["Camion", "Excavatrice", "Groupe électrogène", "Autre"])
+        
+        with col2:
+            st.number_input("Prix unitaire (DH/L)", min_value=0.0, step=0.1)
+            st.text_input("Numéro de carte carburant")
+            st.date_input("Date de ravitaillement")
+        
+        st.form_submit_button("Enregistrer (bientôt disponible)", disabled=True)
+
+def show_electricity_tracking():
+    """Onglet de suivi de l'électricité"""
+    st.markdown("### Suivi de la consommation électrique")
+    
+    with st.form(key="electricity_placeholder"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.selectbox("Source d'énergie", ["Réseau ONEE", "Solaire", "Éolien", "Groupe électrogène"])
+            st.number_input("Consommation (kWh)", min_value=0.0, step=0.1)
+            st.text_input("Compteur N°")
+        
+        with col2:
+            st.number_input("Puissance souscrite (kVA)", min_value=0.0, step=0.1)
+            st.number_input("Coût (DH)", min_value=0.0, step=0.1)
+            st.date_input("Date de relevé")
+        
+        st.form_submit_button("Enregistrer (bientôt disponible)", disabled=True)
+
+def show_pretask_page():
+    """Page PréTask"""
+    display_app_header("PréTask")
+    
+    # Vérification directe du service
+    user_service = st.session_state.get('Service', '')
+    if user_service not in ["Admin", "HSE"]:
+        st.error("⚠️ Vous n'avez pas accès à cette fonctionnalité.")
+        st.info("Cette fonctionnalité est réservée aux services Admin et HSE.")
+        return
+    
+    st.markdown("### Système de PréTask - Analyse des risques avant travail")
+    
+    pretask_tab1, pretask_tab2, pretask_tab3 = st.tabs([
+        " Nouvelle PréTask", 
+        " PréTasks en cours", 
+        " Historique"
+    ])
+    
+    with pretask_tab1:
+        st.markdown("#### Créer une nouvelle PréTask")
+        with st.form(key="pretask_form"):
             col1, col2 = st.columns(2)
             
             with col1:
-                sor_date = st.date_input("Date du SOR", value=date.today())
-                chantier = st.selectbox(
-                    "Chantier",
-                    ["Chantier A - Casablanca", "Chantier B - Rabat", "Chantier C - Marrakech", 
-                     "Chantier D - Tanger", "Chantier E - Agadir"],
-                    index=0
-                )
-                type_intervention = st.selectbox(
-                    "Type d'intervention",
-                    ["Visite de sécurité", "Audit HSE", "Inspection équipements", 
-                     "Formation sécurité", "Réunion sécurité", "Autre"],
-                    index=0
-                )
+                pretask_date = st.date_input("Date de la tâche *", value=datetime.now())
+                work_location = st.text_input("Lieu de travail *", placeholder="Ex: Chantier X, Bâtiment Y")
+                work_description = st.text_area("Description du travail *", placeholder="Décrivez la tâche à réaliser")
+                team_members = st.text_area("Équipe concernée", placeholder="Noms des membres de l'équipe")
             
             with col2:
-                Déclarant = st.text_input(
-                    "Déclarant",
-                    value=user_name,
-                    disabled=True
-                )
-                statut_sor = st.selectbox(
-                    "Statut",
-                    ["Planifié", "En cours", "À reporter", "Urgent"],
-                    index=0
-                )
-                priorite = st.select_slider(
-                    "Priorité",
-                    options=["Basse", "Moyenne", "Haute", "Critique"],
-                    value="Moyenne"
-                )
+                equipment_used = st.text_area("Équipements utilisés", placeholder="Liste des équipements nécessaires")
+                hazards_identified = st.text_area("Risques identifiés *", placeholder="Liste des risques potentiels")
+                preventive_measures = st.text_area("Mesures préventives *", placeholder="Mesures de sécurité à prendre")
+                supervisor = st.text_input("Superviseur responsable *")
             
-            st.markdown("### Description de l'intervention")
-            description = st.text_area(
-                "Description détaillée",
-                placeholder="Décrivez l'intervention à effectuer...",
-                height=150
-            )
-            
-            st.markdown("### Points de contrôle")
-            col_check1, col_check2 = st.columns(2)
-            
-            with col_check1:
-                epi_verifie = st.checkbox("EPI vérifiés")
-                signalisation = st.checkbox("Signalisation en place")
-                acces_securise = st.checkbox("Accès sécurisé")
-            
-            with col_check2:
-                equipements_ok = st.checkbox("Équipements vérifiés")
-                procédures_respectees = st.checkbox("Procédures respectées")
-                risques_identifies = st.checkbox("Risques identifiés")
-            
-            st.markdown("### Photos / Documents")
-            photo_upload = st.file_uploader(
-                "Ajouter une photo (optionnel)",
-                type=['png', 'jpg', 'jpeg'],
-                accept_multiple_files=False
-            )
-            
-            st.markdown("---")
+            st.markdown("**Champs obligatoires ***")
             
             col_submit, col_reset = st.columns(2)
             with col_submit:
-                submit_sor = st.form_submit_button("Enregistrer le SOR", use_container_width=True)
+                if st.form_submit_button(" Créer la PréTask", use_container_width=True):
+                    if all([work_location, work_description, hazards_identified, preventive_measures, supervisor]):
+                        st.success("✅ PréTask créée avec succès !")
+                    else:
+                        st.error("Veuillez remplir tous les champs obligatoires (*)")
             with col_reset:
-                reset_sor = st.form_submit_button(" Réinitialiser", use_container_width=True)
-            
-            if submit_sor:
-                if not description:
-                    st.error("Veuillez saisir une description pour le SOR")
-                else:
-                    # Ici, normalement, vous enregistreriez dans la base de données
-                    # Pour l'instant, simulation
-                    st.success(f" SOR créé avec succès pour le chantier {chantier}")
-                    st.info(f"Date : {sor_date} | Priorité : {priorite} | Statut : {statut_sor}")
-                    
-                    # Réinitialiser le formulaire
-                    st.rerun()
+                st.form_submit_button(" Réinitialiser", use_container_width=True)
     
-    with tab2:
-        st.markdown("### SOR en cours de traitement")
-        
-        # Données simulées pour la démonstration
-        sor_en_cours = [
-            {
-                "id": "SOR-2024-001",
-                "chantier": "Chantier A - Casablanca",
-                "date": "2024-01-15",
-                "Déclarant": user_name,
-                "priorite": "Haute",
-                "statut": "En cours"
-            },
-            {
-                "id": "SOR-2024-002",
-                "chantier": "Chantier B - Rabat",
-                "date": "2024-01-14",
-                "Déclarant": "Ahmed Benani",
-                "priorite": "Moyenne",
-                "statut": "Planifié"
-            },
-            {
-                "id": "SOR-2024-003",
-                "chantier": "Chantier C - Marrakech",
-                "date": "2024-01-13",
-                "Déclarant": user_name,
-                "priorite": "Critique",
-                "statut": "En cours"
-            }
-        ]
-        
-        for sor in sor_en_cours:
-            with st.expander(f"🔴 {sor['id']} - {sor['chantier']} - Priorité: {sor['priorite']}"):
-                col_info, col_action = st.columns([3, 1])
-                
-                with col_info:
-                    st.write(f"**Date :** {sor['date']}")
-                    st.write(f"**Déclarant :** {sor['Déclarant']}")
-                    st.write(f"**Statut :** {sor['statut']}")
-                
-                with col_action:
-                    if st.button(" Modifier", key=f"edit_{sor['id']}"):
-                        st.info(f"Modification du SOR {sor['id']} - Fonctionnalité à implémenter")
-                    
-                    if st.button(" Terminer", key=f"complete_{sor['id']}"):
-                        st.success(f"SOR {sor['id']} marqué comme terminé")
-                        st.rerun()
+    with pretask_tab2:
+        st.markdown("#### PréTasks en cours de validation")
+        st.info("Aucune PréTask en cours pour le moment.")
     
-    with tab3:
-        st.markdown("### Historique des SOR terminés")
-        
-        sor_termines = [
-            {
-                "id": "SOR-2023-045",
-                "chantier": "Chantier D - Tanger",
-                "date": "2023-12-20",
-                "Déclarant": user_name,
-                "resultat": "Conforme"
-            },
-            {
-                "id": "SOR-2023-044",
-                "chantier": "Chantier A - Casablanca",
-                "date": "2023-12-18",
-                "Déclarant": "Fatima Zahra",
-                "resultat": "Non-conformité mineure"
-            }
-        ]
-        
-        for sor in sor_termines:
-            st.markdown(f"""
-            <div style='background-color: #f0f0f0; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>
-                <strong>🔵 {sor['id']} - {sor['chantier']}</strong><br>
-                Date: {sor['date']} | Déclarant: {sor['Déclarant']} | 
-                Résultat: <span style='color: {'green' if sor['resultat'] == 'Conforme' else 'orange'}'>
-                {sor['resultat']}</span>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with tab4:
-        st.markdown("### Statistiques SOR")
-        
-        col_stat1, col_stat2, col_stat3 = st.columns(3)
-        
-        with col_stat1:
-            st.metric("SOR créés ce mois", "15", "+3")
-        
-        with col_stat2:
-            st.metric("SOR en cours", "8", "-1")
-        
-        with col_stat3:
-            st.metric("Taux de conformité", "92%", "+2%")
-        
-        st.markdown("---")
-        
-        # Graphique simple (simulé)
-        st.markdown("#### Répartition par chantier")
-        data = pd.DataFrame({
-            'Chantier': ['Casablanca', 'Rabat', 'Marrakech', 'Tanger', 'Agadir'],
-            'SOR': [5, 3, 4, 2, 1]
-        })
-        st.bar_chart(data.set_index('Chantier'))
-    
-    # Section pour les rapports
-    st.markdown("---")
-    styled_subheader(" Rapports")
-    
-    col_report1, col_report2 = st.columns(2)
-    
-    with col_report1:
-        if st.button(" Générer rapport mensuel", use_container_width=True):
-            st.info("Génération du rapport mensuel en cours...")
-            st.success("Rapport généré avec succès !")
-    
-    with col_report2:
-        if st.button(" Exporter vers Excel", use_container_width=True):
-            st.info("Exportation des données SOR vers Excel...")
-            st.success("Exportation terminée !")
+    with pretask_tab3:
+        st.markdown("#### Historique des PréTasks")
+        st.info("Aucun historique disponible pour le moment.")
 
 def main():
+    icon_base64 = None
+    
     if 'authenticated' in st.session_state and st.session_state.authenticated:
         icon_path = os.path.join("Images", "Corp.JPG")
     else:
         icon_path = os.path.join("Images", "SOGEA-MAROC.JPG")
     
     icon_base64 = get_base64_icon(icon_path)
-    if icon_base64:
+    
+    if icon_base64 is not None:
         st.set_page_config(
             layout="wide",
             page_title="SOGEA-MAROC - Gestion",
@@ -1435,51 +1391,67 @@ def main():
             border-radius: 10px;
         }
         
-        /* Styles supplémentaires pour SOR */
-        .sor-card {
+        .energy-card {
             background-color: white;
             border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-top: 4px solid var(--primary-blue);
+        }
+        
+        .water-card {
+            border-top: 4px solid #004890;
+        }
+        
+        .fuel-card {
+            border-top: 4px solid #EE1B2E;
+        }
+        
+        .electricity-card {
+            border-top: 4px solid #FFD700;
+        }
+        
+        .stMetric {
+            background-color: white;
             padding: 15px;
-            margin-bottom: 15px;
-            border-left: 5px solid var(--primary-blue);
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        
-        .sor-high-priority {
-            border-left: 5px solid #EE1B2E;
-        }
-        
-        .sor-medium-priority {
-            border-left: 5px solid #FFA500;
-        }
-        
-        .sor-low-priority {
-            border-left: 5px solid #008000;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
     </style>
     """, unsafe_allow_html=True)
 
+    # Initialisation des variables de session
     if 'current_user' not in st.session_state:
         st.session_state.current_user = None
     if 'menu_selection' not in st.session_state:
-        st.session_state.menu_selection = "profile"
+        st.session_state.menu_selection = "profil"
     if 'is_admin' not in st.session_state:
         st.session_state.is_admin = False
+    if 'Service' not in st.session_state:
+        st.session_state.Service = "Utilisateur"
+    if 'Statut' not in st.session_state:
+        st.session_state.Statut = "Utilisateur"
+    if 'ID_User' not in st.session_state:
+        st.session_state.ID_User = None
+    if 'Nom_Prenom' not in st.session_state:
+        st.session_state.Nom_Prenom = ""
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+    if 'edit_mode' not in st.session_state:
+        st.session_state.edit_mode = False
 
-    if st.session_state.current_user is None:
+    if not st.session_state.authenticated or st.session_state.current_user is None:
         show_login()
     else:
-        # Récupérer les informations de l'utilisateur courant
         user = st.session_state.current_user
         user_first_name = user[3] if len(user) > 3 and user[3] else ""
         user_last_name = user[4] if len(user) > 4 and user[4] else ""
-        user_statut = user[9] if len(user) > 9 else "Utilisateur"
         
-        # Déterminer si l'utilisateur a accès à SOR
-        has_sor_access = user_statut in ["HSE", "Chef.Chentier"]
+        user_statut = st.session_state.Statut
+        user_service = st.session_state.Service
         
-        # Afficher le bon message dans la sidebar
         if user_first_name and user_last_name:
             greeting = f"Bonjour M. {user_first_name} {user_last_name}"
         else:
@@ -1492,51 +1464,57 @@ def main():
                 {greeting}
             </h2>
             <p style="color: var(--off-white); font-size: 0.9em; margin: 5px 0;">
-                {user_statut}
+                {user_statut} • {user_service}
             </p>
             <p style="color: var(--off-white); font-size: 0.9em; margin-top: 0;">
                 SOGEA-MAROC
             </p>
         </div>
         """, unsafe_allow_html=True)
-
-        # Menu en fonction du statut de l'utilisateur
-        menu_items = [
-            ("Mon Profil", "profile"),
-            ("Modifier le profil", "edit_profile")
-        ]
         
-        # Ajouter SOR pour HSE et Chef de chantier
-        if has_sor_access:
-            menu_items.insert(1, ("Safety Observation Report", "sor"))
+        # Obtenir les éléments du menu selon le service
+        menu_items = get_user_menu_items(user_service)
         
-        if st.session_state.get('is_admin', False):
-            menu_items.append(("Settings", "settings"))
-
+        # Afficher les boutons du menu (sauf logout)
         for label, key_name in menu_items:
+            if key_name == "logout":
+                continue
+            
             if st.sidebar.button(label, key=f"menu_{key_name}"):
                 st.session_state.menu_selection = key_name
                 st.rerun()
-
-        if st.sidebar.button("Se déconnecter", key="sidebar_logout_btn"):
-            st.session_state.current_user = None
-            st.session_state.menu_selection = "profile"
-            st.session_state.is_admin = False
-            st.session_state.authenticated = False
+        
+        # Bouton de déconnexion
+        st.sidebar.markdown("---")
+        if st.sidebar.button("  Se déconnecter", key="sidebar_logout_btn"):
+            # Nettoyer la session
+            for key in list(st.session_state.keys()):
+                if key not in ['_runner', '_client', '_pages', '_last_uploaded_file']:
+                    del st.session_state[key]
             st.rerun()
-
-        # Afficher la page correspondante
-        if st.session_state.menu_selection == "profile":
-            display_app_header("Mon Profil")
-            show_profile()
-        elif st.session_state.menu_selection == "edit_profile":
-            display_app_header("Modifier le profil")
-            show_edit_profile()
-        elif st.session_state.menu_selection == "settings":
-            display_app_header("Gestion des utilisateurs")
+        
+        # Navigation selon la sélection
+        current_page = st.session_state.menu_selection
+        
+        if current_page == "profil":
+            show_profile_page()
+        elif current_page == "energy_tracking":
+            show_energy_tracking_page()
+        elif current_page == "settings":
             show_settings()
-        elif st.session_state.menu_selection == "sor":
-            show_sor_page()
+        elif current_page == "sor":
+            # Vérification d'accès pour SOR
+            if user_service not in ["Admin", "HSE"]:
+                st.error("⚠️ Vous n'avez pas accès à cette fonctionnalité.")
+                st.info("Cette fonctionnalité est réservée aux services Admin et HSE.")
+                st.session_state.menu_selection = "profil"
+                st.rerun()
+            else:
+                show_sor_page()
+        elif current_page == "pretask":
+            show_pretask_page()
+        else:
+            show_profile_page()
 
 if __name__ == "__main__":
     main()
