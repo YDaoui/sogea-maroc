@@ -622,10 +622,12 @@ def show_login():
     with col2:
         # Pas d'espace en haut
         login = st.text_input("Nom d'utilisateur : ", key="login_username")
-      
-        if st.button("Annuler", key="cancel_button", use_container_width=True):
-            st.info("Connexion annulée")
-            st.rerun()
+        password = st.text_input("Mot de passe :", type="password", key="login_password")
+        # ... reste du code identique
+        st.info("Connexion annulée")
+        st.rerun()
+    
+            
     
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
