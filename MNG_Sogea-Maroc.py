@@ -623,9 +623,7 @@ def show_login():
         # Pas d'espace en haut
         login = st.text_input("Nom d'utilisateur : ", key="login_username")
         password = st.text_input("Mot de passe :", type="password", key="login_password")
-        # ... reste du code identique
-        st.info("Connexion annulée")
-        st.rerun()
+    
     
             
     
