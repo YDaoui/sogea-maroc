@@ -616,11 +616,11 @@ def show_login():
         pass
     with col2:
         st.markdown("<div style='display: flex; align-items: flex-start; justify-content: center; height: 100%; padding-top: 20px;'>", unsafe_allow_html=True)
-        display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=200)
+        display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=400)
         st.markdown("</div>", unsafe_allow_html=True)
     
     with col3:
-        st.markdown("#### Connexion")
+       # st.markdown("#### Connexion")
         login = st.text_input("Nom d'utilisateur : ", key="login_username")
         password = st.text_input("Mot de passe :", type="password", key="login_password")
         
