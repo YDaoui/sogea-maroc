@@ -616,7 +616,7 @@ def show_login():
         pass
     with col2:
         st.markdown("<div style='display: flex; align-items: flex-start; justify-content: center; height: 100%; padding-top: 20px;'>", unsafe_allow_html=True)
-        display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=300)
+        display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=600)
         st.markdown("</div>", unsafe_allow_html=True)
     
     with col3:
