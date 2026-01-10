@@ -36,7 +36,7 @@ def show_login():
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
-        st.subheader("Page de connexion")
+       # st.subheader("Page de connexion")
         login = st.text_input("Nom d'utilisateur : ", key="login_username")
         password = st.text_input("Mot de passe :", type="password", key="login_password")
 
