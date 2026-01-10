@@ -611,15 +611,16 @@ def get_user_name(user):
         return user[1] if len(user) > 1 else "Utilisateur"
 
 def show_login():
-    col1, col2,col3 = st.columns([1,3,7])
+    col1, col2,col3 = st.columns([0.1,2,9])
     with col1:
         pass
     with col2:
         st.markdown("<div style='display: flex; align-items: flex-start; justify-content: center; height: 100%; padding-top: 20px;'>", unsafe_allow_html=True)
-        display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=600)
+        display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=200)
         st.markdown("</div>", unsafe_allow_html=True)
     
     with col3:
+        st.markdown("#### Connexion")
         login = st.text_input("Nom d'utilisateur : ", key="login_username")
         password = st.text_input("Mot de passe :", type="password", key="login_password")
         
