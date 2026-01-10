@@ -611,7 +611,7 @@ def get_user_name(user):
         return user[1] if len(user) > 1 else "Utilisateur"
 
 def show_login():
-    col1, col2,col3 = st.columns([1,1,7])
+    col1, col2,col3 = st.columns([1,3,7])
     with col1:
         pass
     with col2:
