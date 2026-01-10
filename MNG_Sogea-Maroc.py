@@ -611,73 +611,18 @@ def get_user_name(user):
         return user[1] if len(user) > 1 else "Utilisateur"
 
 def show_login():
-    # CSS pour le layout
-    st.markdown("""
-    <style>
-    .login-page-container {
-        display: flex;
-        width: 100%;
-        min-height: 70vh;
-        align-items: flex-start;  /* Tout aligné en haut */
-    }
-    .logo-column {
-        flex: 1;
-        display: flex;
-        justify-content: center;
-        align-items: flex-start;
-        padding: 20px;
-    }
-    .form-column {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-start;
-        align-items: flex-start;
-        padding: 20px;
-        padding-top: 40px;  /* Ajustez selon besoin */
-    }
-    .logo-column img {
-        max-width: 100%;
-        height: auto;
-        object-fit: contain;
-    }
-    @media (max-width: 768px) {
-        .login-page-container {
-            flex-direction: column;
-        }
-        .logo-column, .form-column {
-            width: 100%;
-        }
-    }
-    </style>
-    """, unsafe_allow_html=True)
+   
+    # Logo prend moins de place (40%), formulaire plus (60%)
+    col1, col2 = st.columns([4, 6])  # 40%/60%
     
-    st.markdown('<div class="login-page-container">', unsafe_allow_html=True)
+    with col1:
+        # Logo plus petit
+        display_logo(os.path.join("Images", "SOGEA-MAROC.JPG"), width=200)
     
-    # Colonne logo
-    st.markdown('<div class="logo-column">', unsafe_allow_html=True)
-    try:
-        full_path = os.path.join(os.path.dirname(__file__), "Images", "SOGEA-MAROC.JPG")
-        img = Image.open(full_path)
-        st.image(img, use_container_width=True)
-    except Exception as e:
-        st.error(f"Erreur lors du chargement du logo : {e}")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Colonne formulaire
-    st.markdown('<div class="form-column">', unsafe_allow_html=True)
-    
-    login = st.text_input("Nom d'utilisateur : ", key="login_username")
-    password = st.text_input("Mot de passe :", type="password", key="login_password")
-    
-    col_btn1, col_btn2 = st.columns(2)
-    
-    with col_btn1:
-        if st.button("Se connecter", key="login_button", use_container_width=True):
-            is_authenticated, user_id = authenticate(login, password)
-            handle_login_result(is_authenticated, user_id)
-    
-    with col_btn2:
+    with col2:
+        # Pas d'espace en haut
+        login = st.text_input("Nom d'utilisateur : ", key="login_username")
+      
         if st.button("Annuler", key="cancel_button", use_container_width=True):
             st.info("Connexion annulée")
             st.rerun()
